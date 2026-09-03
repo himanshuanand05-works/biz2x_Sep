@@ -1,16 +1,32 @@
 {
   "name": "biz2x_sep",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A production-optimized Node.js application",
+  "main": "src/index.js",
+  "type": "module",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "prestart": "node -e \"if(process.getuid && process.getuid() === 0) { console.error('Do not run as root!'); process.exit(1); }\"",
+    "start": "cross-env NODE_ENV=production node src/index.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "cross-env": "7.0.3",
+    "dotenv": "16.4.5",
+    "express": "4.19.2"
+  },
+  "devDependencies": {
+    "nodemon": "3.1.0"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "private": true
 }
