@@ -1,14 +1,8 @@
 # Low-Level Design (LLD) Specification: AI Financial Wellness Assistant
 
 ## 1. Executive Summary
+
 This document outlines the class structures, entity models, database schemas, relationship mappings, and security middleware logic for the Node.js/Express AI Financial Wellness Assistant. 
-
-### Key Architectural Enhancements:
-* **Normalized Investment Tracking:** Dedicated `Investment` model supporting `startDate`, `financialYear`, and proof verification states (`DECLARED` vs. `VERIFIED`).
-* **Multi-Year Financial Scope:** Dynamic aggregation of `currentDeclared` 80C contributions scoped to specific active financial years.
-* **Separation of Concerns:** Hard separation between deterministic financial math, database persistence, security middleware, and generative prompt orchestration.
-
----
 
 ## 2. Updated Low-Level Class Diagram
 
@@ -36,8 +30,8 @@ classDiagram
         +getByUserId(userId) PayrollRecord
     }
 
-    class Investment {
-        +String investmentId
+    class Deduction {
+        +String DeductionId
         +String userId
         +String category
         +String type
@@ -79,21 +73,24 @@ classDiagram
     }
 
     User "1" -- "1" PayrollRecord : owns
-    User "1" -- "0..*" Investment : declares
+    User "1" -- "0..*" Deduction : declares
     User "1" -- "0..*" UploadedPayslip : uploads
-    Investment "0..1" -- "0..1" UploadedPayslip : references proof
+    Deduction "0..1" -- "0..1" UploadedPayslip : references proof
     SecurityMiddleware ..> User : authenticates
     PromptOrchestrator ..> PayrollRecord : inspects
-    PromptOrchestrator ..> Investment : aggregates 80C
+    PromptOrchestrator ..> Deduction : aggregates 80C
     PromptOrchestrator ..> UploadedPayslip : inspects
     PromptOrchestrator ..> TaxCalculatorService : uses precomputed values
 ```
+
+
 
 ---
 
 ## 3. Entity Models & Database Schema
 
 ### 3.1 `User` Model
+
 ```javascript
 class User {
   constructor({ userId, name, email, token }) {
@@ -106,6 +103,7 @@ class User {
 ```
 
 ### 3.2 `PayrollRecord` Model
+
 ```javascript
 class PayrollRecord {
   constructor({ userId, basic, hra, lta, pfDeduction, taxDeduction, grossPay, netPay, ytd }) {
@@ -126,11 +124,12 @@ class PayrollRecord {
 }
 ```
 
-### 3.3 `Investment` Model (Normalized Multi-Year Ledger)
+### 3.3 `Deduction` Model (Normalized Multi-Year Ledger)
+
 ```javascript
-class Investment {
-  constructor({ investmentId, userId, category, type, amount, startDate, financialYear, status, proofDocumentId }) {
-    this.investmentId = investmentId; // Primary Key
+class Deduction {
+  constructor({ DeductionId, userId, category, type, amount, startDate, financialYear, status, proofDocumentId }) {
+    this.DeductionId = DeductionId; // Primary Key
     this.userId = userId;               // Foreign Key to User
     this.category = category;           // '80C', '80D', '80CCD', etc.
     this.type = type;                   // 'ELSS', 'PPF', 'LIC', 'EPF'
@@ -144,12 +143,13 @@ class Investment {
 ```
 
 #### SQL Schema Specification
+
 ```sql
-CREATE TABLE investments (
-    investment_id VARCHAR(50) PRIMARY KEY,
+CREATE TABLE Deductions (
+    Deduction_id VARCHAR(50) PRIMARY KEY,
     user_id VARCHAR(50) NOT NULL REFERENCES users(user_id),
     category VARCHAR(20) NOT NULL, -- '80C', '80D'
-    investment_type VARCHAR(50) NOT NULL, -- 'ELSS', 'PPF', 'EPF'
+    Deduction_type VARCHAR(50) NOT NULL, -- 'ELSS', 'PPF', 'EPF'
     amount DECIMAL(10, 2) NOT NULL,
     start_date DATE NOT NULL,
     financial_year VARCHAR(9) NOT NULL, -- e.g., '2026-2027'
@@ -159,10 +159,11 @@ CREATE TABLE investments (
 );
 
 -- Index for high-performance multi-year user lookups
-CREATE INDEX idx_user_fy_category ON investments(user_id, financial_year, category);
+CREATE INDEX idx_user_fy_category ON Deductions(user_id, financial_year, category);
 ```
 
 ### 3.4 `UploadedPayslip` Model
+
 ```javascript
 class UploadedPayslip {
   constructor({ documentId, userId, fileName, mimeType, fileSize, extractedOcrData }) {
@@ -178,6 +179,7 @@ class UploadedPayslip {
 ```
 
 ### 3.5 `TaxSimulationResult` Model (Value Object)
+
 ```javascript
 class TaxSimulationResult {
   constructor({ currentDeclared80C, proposedAdditional, eligibleDeduction, estimatedSavings, financialYear }) {
@@ -197,17 +199,17 @@ class TaxSimulationResult {
 
 ```javascript
 // Service logic computing active currentDeclared80C dynamically
-class InvestmentService {
+class DeductionService {
   static getCurrentDeclared80C(userId, financialYear = "2026-2027") {
-    // Queries normalized Investment ledger filtered by active financial year
-    const activeInvestments = investmentDatabase.filter(inv => 
+    // Queries normalized Deduction ledger filtered by active financial year
+    const activeDeductions = DeductionDatabase.filter(inv => 
       inv.userId === userId && 
       inv.financialYear === financialYear &&
       inv.category === '80C' &&
       ['DECLARED', 'VERIFIED'].includes(inv.status)
     );
 
-    return activeInvestments.reduce((sum, inv) => sum + inv.amount, 0);
+    return activeDeductions.reduce((sum, inv) => sum + inv.amount, 0);
   }
 }
 ```
@@ -216,10 +218,26 @@ class InvestmentService {
 
 ## 5. Entity Relationship & Constraint Summary
 
-| Entity Pair | Relationship Type | Cardinality | Constraint / Security Safeguard |
-|---|---|---|---|
-| **User → PayrollRecord** | One-to-One (`1 : 1`) | Mandatory | Bound strictly by `userId`. An employee can access only their own record. |
-| **User → Investment** | One-to-Many (`1 : N`) | Optional | Filtered by `userId` and `financialYear`. Supports multi-year tracking. |
-| **User → UploadedPayslip** | One-to-Many (`1 : N`) | Optional | In-memory upload scoped to `req.user.userId`. Validated by `uploadGuard`. |
-| **Investment → UploadedPayslip** | Zero/One-to-One (`0..1 : 0..1`) | Optional | Links investment declarations to proof files via `proofDocumentId`. |
-| **TaxCalculator → PromptOrchestrator** | Value Object Input | Read-Only | Dynamic aggregate output passed into LLM prompt as immutable JSON context. |
+
+| Entity Pair                            | Relationship Type               | Cardinality | Constraint / Security Safeguard                                            |
+| -------------------------------------- | ------------------------------- | ----------- | -------------------------------------------------------------------------- |
+| **User → PayrollRecord**               | One-to-One (`1 : 1`)            | Mandatory   | Bound strictly by `userId`. An employee can access only their own record.  |
+| **User → Deduction**                  | One-to-Many (`1 : N`)           | Optional    | Filtered by `userId` and `financialYear`. Supports multi-year tracking.    |
+| **User → UploadedPayslip**             | One-to-Many (`1 : N`)           | Optional    | In-memory upload scoped to `req.user.userId`. Validated by `uploadGuard`.  |
+| **Deduction → UploadedPayslip**       | Zero/One-to-One (`0..1 : 0..1`) | Optional    | Links Deduction declarations to proof files via `proofDocumentId`.        |
+| **TaxCalculator → PromptOrchestrator** | Value Object Input              | Read-Only   | Dynamic aggregate output passed into LLM prompt as immutable JSON context. |
+
+
+## 5. Services
+
+### 5.1 ocrService
+
+Extracts raw structured text from uploaded payslips (PDF/Images)
+`Input:` Raw Buffer from uploadGuard
+`Output:` Extracted key-value pair payload
+
+### 5.2 taxCalculatorService
+
+Performs deterministic Section 80C and other tax saving Sections calculations
+
+### 5.3 salaryService
