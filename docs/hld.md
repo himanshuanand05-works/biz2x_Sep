@@ -132,10 +132,13 @@ POST /api/v1/assistant/query
       → classify intent
       → ContextAssembler: user, payroll, deductions, reimbursements, documents
       → TaxCalculatorService if TAX_SIMULATION
-      → LlmClient.complete(grounded prompt)
+      → PromptOrchestrator.buildGroundedPrompt(userQuery, scopedContext, simulationResult)
+      → LlmClient.query(grounded prompt)
       → validateAndFormatResponse (numbers must appear in context)
   → { answer, intent, sources, assumptions, refusal }
 ```
+
+The grounded prompt engine always fetches data with `userId` from the validated bearer token. It injects structured payroll, OCR excerpts, and deterministic tax facts into the provider prompt; a raw user question is never sent to the LLM. Unsupported questions such as a manager's salary or foreign tax law are refused before the provider call.
 
 ---
 

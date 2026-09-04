@@ -1496,7 +1496,7 @@ Every repository method signature includes `userId` as the first filter paramete
 ```javascript
 class PromptingService {
   async answerGroundedQuery(userId, query, { payrollCycle, financialYear } = {}) {
-    // 1. securityGuard already sanitized query
+    // 1. securityGuard already sanitized query; refusal rules run before any provider call
     const intent = this.classifyIntent(query);
 
     // 2. Deterministic pre-computation (never delegate math to LLM)
@@ -1511,15 +1511,11 @@ class PromptingService {
       simulationResult = await TaxCalculatorService.calculateFromQuery(userId, query, financialYear);
     }
 
-    // 3. Build grounded prompt from PromptTemplates
-    const prompt = PromptTemplates.build({
-      intent,
-      query,
-      contexts: { userContext, payrollContext, documentContext, deductionContext, reimbursementContext, simulationResult }
-    });
+    // 3. Build grounded prompt from scoped context
+    const prompt = PromptOrchestrator.buildGroundedPrompt(query, contexts, simulationResult);
 
     // 4. Call LLM; post-validate response
-    const rawAnswer = await LlmClient.complete(prompt);
+    const rawAnswer = await LlmClient.query(prompt);
     return this.validateAndFormatResponse(rawAnswer, { contexts, simulationResult });
   }
 

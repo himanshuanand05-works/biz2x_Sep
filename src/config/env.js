@@ -39,7 +39,10 @@ export const env = Object.freeze({
   rateLimitAuthMax: Number(process.env.RATE_LIMIT_AUTH_MAX ?? 10),
   maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_BYTES ?? 5242880),
   llmProvider: process.env.LLM_PROVIDER ?? 'gemini',
+  llmBaseUrl: process.env.LLM_BASE_URL ?? 'https://llm-wrapper-741152993481.asia-south1.run.app',
   llmApiKey: process.env.LLM_API_KEY ?? '',
   llmModel: process.env.LLM_MODEL ?? 'gemini-1.5-pro',
-  llmTemperature: Number(process.env.LLM_TEMPERATURE ?? 0.3)
+  llmTemperature: Number(process.env.LLM_TEMPERATURE ?? 0.3),
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 30000),
+  llmJsonLimit: process.env.LLM_JSON_LIMIT ?? '8mb'
 });

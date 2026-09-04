@@ -17,10 +17,13 @@ const injectionPatterns = [
 
 /** Removes markup and rejects common prompt-injection attempts. */
 export function securityGuard(req, res, next) {
-  const query = String(req.body?.query ?? '');
-  if (injectionPatterns.some((pattern) => pattern.test(query))) {
+  const inputFields = ['query', 'prompt'];
+  const input = inputFields.map((field) => String(req.body?.[field] ?? '')).join('\n');
+  if (injectionPatterns.some((pattern) => pattern.test(input))) {
     return next(new ValidationError('Query contains disallowed instructions'));
   }
-  if (req.body?.query) req.body.query = query.replace(/<[^>]*>/g, '').trim();
+  for (const field of inputFields) {
+    if (req.body?.[field]) req.body[field] = String(req.body[field]).replace(/<[^>]*>/g, '').trim();
+  }
   return next();
 }

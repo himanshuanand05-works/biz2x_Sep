@@ -14,20 +14,20 @@ export class UserDocumentService {
       payrollCycle: metadata.payrollCycle ?? null, createdBy: userId, updatedBy: userId
     });
     const ocr = await mockOcrService.extract(document.documentId, document.category, file);
-    return userDocumentRepository.update(document.documentId, { status: DocumentStatus.OCR_COMPLETE, mockOcrPayload: ocr, updatedBy: userId });
+    return userDocumentRepository.update(userId, document.documentId, { status: DocumentStatus.OCR_COMPLETE, mockOcrPayload: ocr, updatedBy: userId });
   }
 
   async list(userId, filters = {}) { return userDocumentRepository.find(userId, filters); }
 
   async getById(userId, documentId) {
-    const document = await userDocumentRepository.findById(documentId);
-    if (!document || document.userId !== userId) throw new NotFoundError('Document not found');
+    const document = await userDocumentRepository.findByUserAndId(userId, documentId);
+    if (!document) throw new NotFoundError('Document not found');
     return document;
   }
 
   async softDelete(userId, documentId) {
     await this.getById(userId, documentId);
-    return userDocumentRepository.delete(documentId);
+    return userDocumentRepository.delete(userId, documentId);
   }
 }
 

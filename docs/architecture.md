@@ -14,6 +14,7 @@ Source of truth for class-level contracts, eligibility algorithms, and prompt te
 * **Repository pattern:** Controllers and services never import Sequelize models or raw SQL. All persistence goes through repository classes that return Promises and expose CRUD-shaped methods (`find`, `findById`, `create`, `update`, `delete` / soft-delete).
 * **Policy-driven catalogs:** Deduction and reimbursement types, limits, and applicability live in catalog tables, not hardcoded enums in business services.
 * **Strict privacy first:** Data access is bound to authenticated session identity (`req.user.userId` from JWT). Context fed to the AI is scoped exclusively to the active user.
+* **Grounded prompt boundary:** User questions are never sent directly to the LLM. The backend fetches scoped payroll and OCR data, runs deterministic tax calculations, and injects read-only context into the provider prompt.
 
 ---
 
@@ -111,10 +112,10 @@ Assembles system instructions, structured JSON facts (payroll, deductions, catal
 
 | Attack vector / risk | Architectural safeguard |
 |---|---|
-| **Cross-user data leakage** | JWT `sub` is the only authorization scope; repositories require `userId`. |
+| **Cross-user data leakage** | JWT `sub` is the only authorization scope; every employee repository read, update, delete, and document retriever requires `userId`. |
 | **Prompt injection / jailbreak** | Input regex blocklist; system prompt forbids following user-embedded instructions; context-only answers. |
 | **Unbounded upload abuse** | In-memory Multer, 5 MB, MIME/extension checks, per-user rate limits. |
-| **Hallucinated financial math** | Tax/payroll/eligibility computed in services; LLM receives read-only JSON. |
+| **Hallucinated financial math** | Deterministic services compute tax and payroll facts; PromptOrchestrator injects read-only context and refuses unsupported scope before the provider call. |
 | **Secrets in source** | `JWT_SECRET`, LLM keys, DB URLs via `process.env` / dotenv. |
 | **DoS / abuse** | Helmet, CORS whitelist, `express-rate-limit` keyed by user (IP on `/auth/token`). |
 | **Error leakage** | Central error middleware; no stack traces in production. |

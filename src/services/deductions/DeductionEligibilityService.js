@@ -89,8 +89,8 @@ export class DeductionEligibilityService {
   }
 
   async validateRemove(user, deductionId) {
-    const row = await deductionRepository.findById(deductionId);
-    if (!row || row.userId !== user.userId) {
+    const row = await deductionRepository.findByUserAndId(user.userId, deductionId);
+    if (!row) {
       throw new NotFoundError('Deduction not found');
     }
     if (row.source === DeductionSource.PAYROLL_IMPORT || row.status === DeductionStatus.APPLIED) {

@@ -30,12 +30,17 @@ export class ReimbursementRepository {
     return mapRow(await this.model.findByPk(reimbursementId));
   }
 
+  /** Finds a reimbursement only inside the authenticated employee's tenant. */
+  async findByUserAndId(userId, reimbursementId) {
+    return mapRow(await this.model.findOne({ where: { userId, reimbursementId } }));
+  }
+
   async create(data) {
     return mapRow(await this.model.create(data));
   }
 
-  async update(reimbursementId, data) {
-    const row = await this.model.findByPk(reimbursementId);
+  async update(userId, reimbursementId, data) {
+    const row = await this.model.findOne({ where: { userId, reimbursementId } });
     if (!row) {
       return null;
     }
@@ -43,8 +48,8 @@ export class ReimbursementRepository {
     return mapRow(row);
   }
 
-  async delete(reimbursementId) {
-    const count = await this.model.destroy({ where: { reimbursementId } });
+  async delete(userId, reimbursementId) {
+    const count = await this.model.destroy({ where: { userId, reimbursementId } });
     return count > 0;
   }
 

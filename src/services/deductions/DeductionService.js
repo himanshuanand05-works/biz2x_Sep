@@ -14,8 +14,8 @@ export class DeductionService {
   }
 
   async getById(userId, deductionId) {
-    const row = await deductionRepository.findById(deductionId);
-    if (!row || row.userId !== userId) {
+    const row = await deductionRepository.findByUserAndId(userId, deductionId);
+    if (!row) {
       throw new NotFoundError('Deduction not found');
     }
     return row;
@@ -78,7 +78,7 @@ export class DeductionService {
     if (!eligibility.isValidUnderPolicy) {
       throw new ValidationError('Deduction is not valid under policy', eligibility.messages);
     }
-    return deductionRepository.update(deductionId, {
+    return deductionRepository.update(userId, deductionId, {
       ...payload,
       amountMinor,
       isValidUnderPolicy: eligibility.isValidUnderPolicy,
@@ -93,8 +93,8 @@ export class DeductionService {
     if (!eligibility.isValidUnderPolicy) {
       throw new ForbiddenError(eligibility.messages[0] ?? 'Cannot delete this deduction');
     }
-    await deductionRepository.update(deductionId, { updatedBy: actorUserId });
-    return deductionRepository.delete(deductionId);
+    await deductionRepository.update(userId, deductionId, { updatedBy: actorUserId });
+    return deductionRepository.delete(userId, deductionId);
   }
 
   async getAggregateUsedMinor(userId, financialYear, aggregateGroup) {

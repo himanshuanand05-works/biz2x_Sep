@@ -27,6 +27,8 @@ import { swaggerDocument } from './api/swagger.js';
 import { sendSuccess } from './utils/apiResponse.js';
 import { NotFoundError, UnauthorizedError, ValidationError } from './utils/errors.js';
 import { fromMinorUnits } from './utils/money.js';
+import { llmClient } from './services/ai/LlmClient.js';
+import { promptOrchestrator } from './services/ai/PromptOrchestrator.js';
 
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const authLimiter = createRateLimiter(env.rateLimitAuthMax);
@@ -37,6 +39,8 @@ const assistantLimiter = createRateLimiter(env.rateLimitAssistantMax);
 export const app = express();
 app.use(helmet());
 app.use(cors(corsOptions));
+// LLM documents are base64 encoded, so this route needs a bounded larger parser limit.
+app.use('/api/v1/llm', express.json({ limit: env.llmJsonLimit }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.get('/health', (req, res) => sendSuccess(res, { status: 'UP', timestamp: new Date().toISOString() }));
@@ -111,9 +115,22 @@ app.delete('/api/v1/reimbursements/:id', authGuard, asyncRoute(async (req, res) 
 app.post('/api/v1/assistant/query', authGuard, assistantLimiter, securityGuard, userContextLoader, asyncRoute(async (req, res) => {
   const query = req.body?.query;
   if (!query) throw new ValidationError('query is required');
-  return sendSuccess(res, { answer: 'Your question has been grounded against your available payroll and policy data.', intent: 'DOCUMENT_GROUNDED', sources: ['user-context'], assumptions: [], refusal: false });
+  const result = await promptOrchestrator.answer(req.user.userId, query, {
+    financialYear: req.body.financialYear ?? req.context.activeFinancialYear,
+    payrollCycle: req.body.payrollCycle ?? req.context.latestPayrollCycle,
+    proposed80C: req.body.proposed80C
+  });
+  return sendSuccess(res, result);
 }));
 app.get('/api/v1/assistant/checklist', authGuard, userContextLoader, asyncRoute(async (req, res) => sendSuccess(res, { financialYear: req.context.activeFinancialYear, missingProofs: [] })));
+
+/** Proxies an authenticated prompt and optional base64 document to the configured LLM wrapper. */
+app.post('/api/v1/llm/query', authGuard, assistantLimiter, securityGuard, asyncRoute(async (req, res) => {
+  const { prompt, ...options } = req.body ?? {};
+  if (!prompt) throw new ValidationError('prompt is required');
+  const result = await promptOrchestrator.answer(req.user.userId, prompt, options);
+  return sendSuccess(res, result);
+}));
 
 app.use((req, res, next) => next(new NotFoundError('Route not found')));
 app.use(errorHandler);

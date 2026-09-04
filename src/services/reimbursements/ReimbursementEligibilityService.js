@@ -67,8 +67,8 @@ export class ReimbursementEligibilityService {
   }
 
   async validateRemove(user, reimbursementId) {
-    const row = await reimbursementRepository.findById(reimbursementId);
-    if (!row || row.userId !== user.userId) {
+    const row = await reimbursementRepository.findByUserAndId(user.userId, reimbursementId);
+    if (!row) {
       throw new NotFoundError('Reimbursement not found');
     }
     if (['PAID', 'APPROVED'].includes(row.status)) {

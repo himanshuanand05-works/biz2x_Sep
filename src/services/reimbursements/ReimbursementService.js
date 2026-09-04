@@ -55,20 +55,20 @@ export class ReimbursementService {
   }
 
   async attachProof(userId, reimbursementId, documentId) {
-    const claim = await reimbursementRepository.findById(reimbursementId);
-    if (!claim || claim.userId !== userId) {
+    const claim = await reimbursementRepository.findByUserAndId(userId, reimbursementId);
+    if (!claim) {
       throw new NotFoundError('Reimbursement not found');
     }
-    const doc = await userDocumentRepository.findById(documentId);
-    if (!doc || doc.userId !== userId) {
+    const doc = await userDocumentRepository.findByUserAndId(userId, documentId);
+    if (!doc) {
       throw new NotFoundError('Document not found');
     }
-    await userDocumentRepository.update(documentId, {
+    await userDocumentRepository.update(userId, documentId, {
       linkedEntityType: LinkedEntityType.REIMBURSEMENT,
       linkedEntityId: reimbursementId,
       updatedBy: userId
     });
-    return reimbursementRepository.update(reimbursementId, {
+    return reimbursementRepository.update(userId, reimbursementId, {
       proofDocumentId: documentId,
       status: ReimbursementStatus.SUBMITTED,
       updatedBy: userId
@@ -84,7 +84,7 @@ export class ReimbursementService {
     if (!eligibility.isValidUnderPolicy) {
       throw new ForbiddenError(eligibility.messages[0] ?? 'Cannot delete this claim');
     }
-    return reimbursementRepository.delete(reimbursementId);
+    return reimbursementRepository.delete(userId, reimbursementId);
   }
 }
 

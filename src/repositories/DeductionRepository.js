@@ -27,6 +27,11 @@ export class DeductionRepository {
     return mapDeduction(await this.model.findByPk(deductionId));
   }
 
+  /** Finds a deduction only inside the authenticated employee's tenant. */
+  async findByUserAndId(userId, deductionId) {
+    return mapDeduction(await this.model.findOne({ where: { userId, deductionId } }));
+  }
+
   async findByUserAndCycle(userId, payrollCycle, extra = {}) {
     return this.find(userId, { payrollCycle, ...extra });
   }
@@ -39,8 +44,8 @@ export class DeductionRepository {
     return mapDeduction(await this.model.create(data));
   }
 
-  async update(deductionId, data) {
-    const row = await this.model.findByPk(deductionId);
+  async update(userId, deductionId, data) {
+    const row = await this.model.findOne({ where: { userId, deductionId } });
     if (!row) {
       return null;
     }
@@ -48,8 +53,8 @@ export class DeductionRepository {
     return mapDeduction(row);
   }
 
-  async delete(deductionId) {
-    const count = await this.model.destroy({ where: { deductionId } });
+  async delete(userId, deductionId) {
+    const count = await this.model.destroy({ where: { userId, deductionId } });
     return count > 0;
   }
 
