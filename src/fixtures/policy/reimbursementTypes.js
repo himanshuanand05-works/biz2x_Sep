@@ -1,0 +1,57 @@
+/** Seed rows for reimbursement_type_catalog. Amounts in paise. */
+export const reimbursementTypeFixtures = [
+  {
+    typeCode: 'MEDICAL',
+    displayName: 'Medical reimbursement',
+    description: 'Outpatient medical bills within the annual company cap.',
+    minAmountMinor: 10000,
+    maxAmountMinor: 5000000,
+    maxPerFyMinor: 1500000,
+    maxPerCycleMinor: null,
+    applicableStatuses: ['ACTIVE', 'PROBATION'],
+    applicableRanks: null,
+    minTenureMonths: 0,
+    requiresProof: true,
+    proofDocumentCategory: 'REIMBURSEMENT_PROOF',
+    effectiveFrom: '2026-04-01',
+    effectiveTo: null,
+    policyVersion: 'FY2026-v1',
+    isActive: true
+  },
+  {
+    typeCode: 'INTERNET',
+    displayName: 'Internet / WFH connectivity',
+    description: 'Home internet reimbursement for eligible bands.',
+    minAmountMinor: 10000,
+    maxAmountMinor: 200000,
+    maxPerFyMinor: 1800000,
+    maxPerCycleMinor: 150000,
+    applicableStatuses: ['ACTIVE', 'PROBATION'],
+    applicableRanks: ['L4', 'L5', 'M2'],
+    minTenureMonths: 3,
+    requiresProof: true,
+    proofDocumentCategory: 'REIMBURSEMENT_PROOF',
+    effectiveFrom: '2026-04-01',
+    effectiveTo: null,
+    policyVersion: 'FY2026-v1',
+    isActive: true
+  },
+  {
+    typeCode: 'LTA',
+    displayName: 'Leave Travel Allowance',
+    description: 'LTA claim against travel proofs; tenure and status filters apply.',
+    minAmountMinor: 100000,
+    maxAmountMinor: 10000000,
+    maxPerFyMinor: 10000000,
+    maxPerCycleMinor: null,
+    applicableStatuses: ['ACTIVE'],
+    applicableRanks: null,
+    minTenureMonths: 12,
+    requiresProof: true,
+    proofDocumentCategory: 'REIMBURSEMENT_PROOF',
+    effectiveFrom: '2026-04-01',
+    effectiveTo: null,
+    policyVersion: 'FY2026-v1',
+    isActive: true
+  }
+];

@@ -1,26 +1,39 @@
 {
   "name": "biz2x_sep",
   "version": "1.0.0",
-  "description": "A production-optimized Node.js application",
+  "description": "AI Financial Wellness Assistant — Express API with Sequelize (SQLite in-memory)",
   "main": "src/index.js",
   "type": "module",
   "directories": {
-    "doc": "docs"
+    "doc": "docs",
+    "test": "test"
   },
   "scripts": {
     "prestart": "node -e \"if(process.getuid && process.getuid() === 0) { console.error('Do not run as root!'); process.exit(1); }\"",
     "start": "cross-env NODE_ENV=production node src/index.js",
     "dev": "cross-env NODE_ENV=development nodemon src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/**/*.test.js"
   },
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "cross-env": "7.0.3",
     "dotenv": "16.4.5",
-    "express": "4.19.2"
+    "express": "4.19.2",
+    "express-async-handler": "^1.2.0",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^7.2.0",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "1.4.5-lts.1",
+    "sequelize": "^6.37.5",
+    "sqlite3": "^5.1.7",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.15.0"
   },
   "devDependencies": {
     "nodemon": "3.1.0"
