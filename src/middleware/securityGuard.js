@@ -1,5 +1,12 @@
 import { ValidationError } from '../utils/errors.js';
-
+/**
+ * Blocks patterns like:
+ * - ignore previous instructions
+ * - disregard the system prompt
+ * - you are now the system prompt
+ * - reveal your system prompt
+ * - jailbreak
+ */
 const injectionPatterns = [
   /ignore\s+(all\s+)?previous\s+instructions/i,
   /disregard\s+(the\s+)?(system|above)/i,

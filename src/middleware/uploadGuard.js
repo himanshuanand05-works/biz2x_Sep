@@ -7,6 +7,6 @@ export const uploadGuard = multer({
   limits: { fileSize: env.maxFileSizeBytes },
   fileFilter(req, file, callback) {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg'];
-    callback(null, allowed.includes(file.mimetype));
+    callback(null, allowed.includes(file.mimetype.toLowerCase()));
   }
 }).single('file');
