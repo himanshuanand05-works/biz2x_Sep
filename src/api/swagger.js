@@ -24,11 +24,11 @@ export const swaggerDocument = {
                         'multipart/form-data': {
                             schema: {
                                 type: 'object',
-                                required: ['query'],
+                                required: ['query', 'financialYear'],
                                 properties: {
                                     query: { type: 'string' },
                                     file: { type: 'string', format: 'binary' },
-                                    financialYear: { type: 'string' },
+                                    financialYear: { type: 'string', pattern: '^\\d{4}-\\d{4}$' },
                                     payrollCycle: { type: 'string' },
                                     proposed80C: { type: 'string' }
                                 }
@@ -37,10 +37,10 @@ export const swaggerDocument = {
                         'application/json': {
                             schema: {
                                 type: 'object',
-                                required: ['query'],
+                                required: ['query', 'financialYear'],
                                 properties: {
                                     query: { type: 'string' },
-                                    financialYear: { type: 'string' },
+                                    financialYear: { type: 'string', pattern: '^\\d{4}-\\d{4}$' },
                                     payrollCycle: { type: 'string' },
                                     proposed80C: { type: 'string' }
                                 }

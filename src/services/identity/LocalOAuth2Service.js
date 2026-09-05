@@ -54,23 +54,30 @@ export class LocalOAuth2Service {
     }
   }
 
+  validateRefreshToken(token) {
+    try {
+      const claims = jwt.verify(token, env.jwtSecret, {
+        issuer: env.jwtIssuer,
+        audience: env.jwtAudience
+      });
+      if (claims.type !== 'refresh') {
+        throw new UnauthorizedError('Not a refresh token');
+      }
+      return claims;
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        throw err;
+      }
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
+  }
+
   /**
    * @param {string} refreshToken
    * @param {{ email: string, name: string }} profile
    */
   refresh(refreshToken, profile) {
-    let claims;
-    try {
-      claims = jwt.verify(refreshToken, env.jwtSecret, {
-        issuer: env.jwtIssuer,
-        audience: env.jwtAudience
-      });
-    } catch {
-      throw new UnauthorizedError('Invalid or expired refresh token');
-    }
-    if (claims.type !== 'refresh') {
-      throw new UnauthorizedError('Not a refresh token');
-    }
+    const claims = this.validateRefreshToken(refreshToken);
     return this.issueToken(claims.sub, profile, claims.scope);
   }
 }

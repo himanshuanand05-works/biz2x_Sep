@@ -13,6 +13,7 @@ Source of truth for class-level contracts, eligibility algorithms, and prompt te
 * **Explicit HTTP boundary:** Route modules register endpoints, controllers coordinate request handling, validator middleware checks input, and response-contract functions project public payloads. The application bootstrap registers infrastructure and mounts routes only.
 * **ORM from day one, database later:** Data access uses **Sequelize** (not TypeORM, Prisma, or Knex). For the prototype, Sequelize targets **SQLite in-memory** (`storage: ':memory:'`). Production target remains **PostgreSQL** by changing dialect and connection env vars—repositories and model definitions stay the same.
 * **Repository pattern:** Controllers and services never import Sequelize models or raw SQL. All persistence goes through repository classes that return Promises and expose CRUD-shaped methods (`find`, `findById`, `create`, `update`, `delete` / soft-delete).
+* **Dependency direction:** Controllers and middleware call application/domain services only. Services may call repositories or other services; repositories are never imported by HTTP handlers or middleware.
 * **Policy-driven catalogs:** Deduction and reimbursement types, limits, and applicability live in catalog tables, not hardcoded enums in business services.
 * **Strict privacy first:** Data access is bound to authenticated session identity (`req.user.userId` from JWT). Context fed to the AI is scoped exclusively to the active user.
 * **Grounded prompt boundary:** User questions are never sent directly to the LLM. The backend fetches scoped payroll and OCR data, runs deterministic tax calculations, and injects read-only context into the provider prompt.
@@ -62,6 +63,90 @@ Source of truth for class-level contracts, eligibility algorithms, and prompt te
 
 ---
 
+## 2. Project Structure
+
+Maintain a layered layout that separates concerns and allows future extraction into microservices without renaming modules.
+
+```
+src/
+├── api/                          # UI/API layer
+│   ├── routes/
+│   │   ├── auth.routes.js        # /api/v1/auth/* (token exchange, mock login)
+│   │   ├── documents.routes.js   # /api/v1/documents/*
+│   │   ├── payroll.routes.js     # /api/v1/payroll/*
+│   │   ├── reimbursements.routes.js
+│   │   ├── deductions.routes.js
+│   │   └── assistant.routes.js   # /api/v1/assistant/*
+│   ├── controllers/              # Thin handlers: validate → service → respond
+│   └── validators/               # Custom request validation middleware per route
+│
+├── middleware/                   # Security & access control
+│   ├── authGuard.js              # JWT validation + req.user injection
+│   ├── userContextLoader.js      # Loads profile, FY, payroll cycle context
+│   ├── corsPolicy.js             # Strict origin whitelist
+│   ├── rateLimiter.js            # Per-user (JWT sub) rate limiting
+│   ├── uploadGuard.js            # Multer + MIME/size checks
+│   ├── securityGuard.js          # XSS strip + prompt-injection filter
+│   ├── errorHandler.js
+│   └── requestLogger.js
+│
+├── repositories/                 # Data access (in-memory now; PostgreSQL later)
+│   ├── UserRepository.js
+│   ├── PayrollRepository.js
+│   ├── DeductionRepository.js
+│   ├── DeductionTypeCatalogRepository.js
+│   ├── ReimbursementRepository.js
+│   ├── ReimbursementTypeCatalogRepository.js
+│   └── UserDocumentRepository.js
+│
+├── services/
+│   ├── identity/
+│   │   ├── LocalOAuth2Service.js # Mock IdP: issue + validate JWT
+│   │   └── UserService.js        # Employee eligibility context
+│   ├── documents/
+│   │   ├── UserDocumentService.js
+│   │   └── MockOcrService.js     # Returns canned structured OCR payloads
+│   ├── payroll/
+│   │   ├── PayrollQueryService.js
+│   │   └── SalaryBreakupService.js
+│   ├── tax/
+│   │   ├── TaxCalculatorService.js
+│   │   └── TaxSimulationResult.js
+│   ├── deductions/
+│   │   └── DeductionService.js
+│   ├── reimbursements/                    # Repository-backed seeded context
+│   ├── policy/
+│   │   └── CompanyPolicyService.js
+│   └── ai/
+│       ├── queryIntent.js        # Assistant intent values
+│       ├── ContextToolPlanner.js # Incremental pattern-based intent planning
+│       ├── PromptOrchestrator.js # Orchestrates grounded Q&A
+│       ├── ContextAssembler.js   # Builds JSON context blocks
+│       └── LlmClient.js          # Provider adapter (Gemini/OpenAI)
+│
+├── utils/
+│   ├── money.js                  # toMinorUnits, fromMinorUnits, add, subtract
+│   └── apiResponse.js            # { success, data } / { success, error }
+│
+└── config/
+    ├── env.js
+    ├── cors.js
+    └── rateLimit.js
+
+public/                             # Static UI
+server.js                           # App bootstrap, middleware registration
+```
+
+| Layer | Responsibility | Must NOT |
+|---|---|---|
+| **Routes / Controllers** | HTTP mapping, input validation, response shaping | Access repositories directly; perform business math |
+| **Services** | Business rules, orchestration, AI context assembly | Parse raw HTTP; store files without document service |
+| **Repositories** | CRUD against in-memory store (future ORM) | Enforce auth; call LLM |
+| **Middleware** | Cross-cutting security and context | Contain domain calculations |
+| **Domain** | Entity shape and invariants | I/O or framework dependencies |
+
+---
+
 ## 3. Layered Module Map
 
 | Layer | Location | Responsibility | Must not |
@@ -77,115 +162,3 @@ Source of truth for class-level contracts, eligibility algorithms, and prompt te
 
 The current implementation uses dedicated custom validator middleware rather than Joi or Zod. This keeps the prototype dependency-light while preserving a stable validation boundary. A schema library can replace the validator implementations later without changing routes or controllers.
 
-### 3.1 HTTP request and response flow
-
-```
-Express bootstrap (`src/index.js`)
-    -> route module (`src/api/routes`)
-    -> request validator / security middleware
-    -> controller (`src/api/controllers`)
-    -> service
-    -> repository
-    -> Sequelize model
-
-controller result
-    -> response contract projection (`src/api/responseContracts.js`)
-    -> envelope (`src/utils/apiResponse.js`)
-```
-
-Request validation is intentionally separate from business validation. Validators check transport concerns such as required fields, strings, and date-like formats. Services remain responsible for policy, eligibility, authorization scope, and deterministic financial rules.
-
-Public responses use explicit projections. For example, user responses allowlist profile fields and exclude persistence-only fields such as `demoPassword`; assistant responses expose `answer`, `intent`, `sources`, `assumptions`, optional `checklist`, and `refusal`.
-
-### 3.2 Security & input (`src/middleware/`)
-
-1. **Auth (`authGuard.js`):** Validate Bearer JWT via `LocalOAuth2Service`. Inject `req.user.userId` from `sub`. Never trust `userId` from body or query.
-2. **User context (`userContextLoader.js`):** Load profile, active FY, latest payroll cycle, and eligible catalog types for the assistant.
-3. **Upload (`uploadGuard.js`):** In-memory Multer, 5 MB cap, MIME allowlist (`application/pdf`, `image/png`, `image/jpeg`).
-4. **Input (`securityGuard.js`):** Strip HTML; block prompt-injection patterns on query/text fields.
-
-### 3.3 Feature-owned business logic
-
-Business logic is organized by feature under `src/services/`. `identity/UserService.js` provides employee eligibility context, `tax/TaxSimulationResult.js` represents bounded tax output, and `ai/queryIntent.js` contains assistant intent values. Sequelize-specific audit fields and model options live under `src/models/AuditFields.js`.
-
-### 3.4 Domain services (summary)
-
-| Service cluster | Role |
-|---|---|
-| **Identity** | Mock OAuth2: issue/validate JWT (production: real OIDC). |
-| **Policy catalogs** | Versioned deduction/reimbursement types, limits, regime/status filters. |
-| **Payroll** | Earnings from `payroll_records`; PAYROLL-scope deductions joined from `deductions`. |
-| **Tax** | Deterministic simulations (e.g. 80C headroom) using catalog caps. |
-| **Deductions / reimbursements** | CRUD with eligibility services; soft-delete; proof document links. |
-| **Documents** | Upload metadata, mock OCR, link to deduction/reimbursement/payslip. |
-| **AI** | Intent routing, context assembly, grounded prompt, post-validate numbers. |
-
-### 3.5 Grounded AI orchestrator
-
-Assembles system instructions, structured JSON facts (payroll, deductions, catalogs, OCR excerpts, simulations), and the sanitized user query. Instructs the model to refuse when facts are missing. Numeric answers must match precomputed display strings.
-
----
-
-## 4. Data & Isolation Model
-
-* **Tenancy:** Every repository query filters by `userId` from the JWT. Catalog tables are global (policy), not tenant-row data.
-* **Soft delete + audit:** Persistent entities carry `createdAt`, `updatedAt`, `deletedAt`, `createdBy`, `updatedBy`. Default finds exclude `deletedAt IS NOT NULL`.
-* **Money:** Persist and compute in integer minor units (paise). Convert at API and AI-context boundaries only.
-* **Documents:** Prototype keeps uploaded file **buffers and OCR results in memory** for the assistant request. Uploaded OCR is discarded after the response; seeded or separately persisted document records remain in Sequelize. Production: object storage (S3) plus metadata tables.
-* **Unified deductions:** PF, TDS, professional tax, and Section 80C/80D-style declarations share one `deductions` table, distinguished by `scope` and `typeCode` FK to the catalog.
-
----
-
-## 5. Security & Privacy Model
-
-| Attack vector / risk | Architectural safeguard |
-|---|---|
-| **Cross-user data leakage** | JWT `sub` is the only authorization scope; every employee repository read, update, delete, and document retriever requires `userId`. |
-| **Prompt injection / jailbreak** | Input regex blocklist; system prompt forbids following user-embedded instructions; context-only answers. |
-| **Unbounded upload abuse** | In-memory Multer, 5 MB, MIME/extension checks, per-user rate limits. |
-| **Hallucinated financial math** | Deterministic services compute tax and payroll facts; PromptOrchestrator injects read-only context and refuses unsupported scope before the provider call. |
-| **Secrets in source** | `JWT_SECRET`, LLM keys, DB URLs via `process.env` / dotenv. |
-| **DoS / abuse** | Helmet, CORS whitelist, `express-rate-limit` keyed by user (IP on `/auth/token`). |
-| **Error leakage** | Central error middleware; no stack traces in production. |
-
----
-
-## 6. Persistence Strategy (Sequelize)
-
-| Phase | Engine | How |
-|---|---|---|
-| **Now (prototype)** | SQLite in-memory | `sequelize` + `sqlite3`, `dialect: 'sqlite'`, `storage: ':memory:'`. Schema via `sequelize.sync()` (or migrations against a file-backed SQLite if tests need durability across restarts). Process restart wipes data; seed fixtures on boot. |
-| **Later (production)** | PostgreSQL | Same models; `dialect: 'postgres'`, connection from env. Prefer migrations over `sync()`. Optional row-level security as a DB-side complement to app-level `userId` filters. |
-
-Sequelize is the **only** ORM. Do not introduce TypeORM, Prisma, or Knex for this codebase.
-
----
-
-## 7. Scalability Strategy & Trade-Offs
-
-```
-Current prototype                         Production target
-─────────────────                         ─────────────────
-SQLite :memory: via Sequelize  ─────────►  PostgreSQL + Sequelize (same models)
-In-memory Multer buffers       ─────────►  Direct-to-S3 / signed URLs
-Local JWT IdP                  ─────────►  OAuth2 / OIDC + JWT
-Synchronous mock OCR           ─────────►  Queue worker (BullMQ/Redis) + real OCR
-Direct LLM SDK call            ─────────►  Optional async jobs for long prompts
-```
-
-**Trade-offs:**
-
-1. **In-memory SQLite:** Fast, zero ops, matches “DB remains in-memory for now.” Data is not durable; acceptable for evaluation.
-2. **In-memory files:** No disk cleanup; lost on restart; size capped at 5 MB.
-3. **Simplified tax logic:** Old/New regime slab estimates and catalog caps—not a full compliance engine.
-4. **Single process:** No horizontal session stickiness needed while tokens are JWTs; in-memory DB does **not** share across instances (scale-out requires PostgreSQL).
-
----
-
-## 8. Out of Scope (Architecture)
-
-* Real OCR / document-understanding pipeline
-* Production OIDC (Auth0, Azure AD, etc.)
-* Full Indian income-tax engine (all sections, surcharge, rebate edge cases)
-* Persistent object storage
-* Multi-instance shared database until PostgreSQL cutover

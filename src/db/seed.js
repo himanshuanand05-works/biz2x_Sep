@@ -7,8 +7,10 @@ import { deductionTypeFixtures } from '../fixtures/policy/deductionTypes.js';
 import { reimbursementTypeFixtures } from '../fixtures/policy/reimbursementTypes.js';
 import { ocrFixtures } from '../fixtures/ocr/index.js';
 import { logger } from '../config/logger.js';
+import { hashPassword } from '../utils/password.js';
 
 const DEMO_USER_ID = 'emp_101';
+const DEMO_PASSWORD_HASH = hashPassword('demo');
 
 function ytdSnapshot(grossMinor, netMinor, deductions, taxDeclarationTotals = {}) {
   return {
@@ -181,8 +183,7 @@ export async function seedDatabase() {
     employmentStatus: 'ACTIVE',
     taxRegime: 'OLD',
     taxRegimeLocked: false,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -201,8 +202,7 @@ export async function seedDatabase() {
     employmentStatus: 'PROBATION',
     taxRegime: 'OLD',
     taxRegimeLocked: false,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -220,8 +220,7 @@ export async function seedDatabase() {
     employmentStatus: 'ACTIVE',
     taxRegime: 'NEW',
     taxRegimeLocked: true,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -240,8 +239,7 @@ export async function seedDatabase() {
     noticePeriodEndDate: '2026-06-30',
     taxRegime: 'OLD',
     taxRegimeLocked: true,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -259,8 +257,7 @@ export async function seedDatabase() {
     employmentStatus: 'ACTIVE',
     taxRegime: 'NEW',
     taxRegimeLocked: false,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -278,8 +275,7 @@ export async function seedDatabase() {
     employmentStatus: 'ON_LEAVE',
     taxRegime: 'OLD',
     taxRegimeLocked: false,
-    activeFinancialYear: '2026-2027',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }, {
@@ -298,8 +294,7 @@ export async function seedDatabase() {
     exitDate: '2026-04-30',
     taxRegime: 'OLD',
     taxRegimeLocked: true,
-    activeFinancialYear: '2025-2026',
-    demoPassword: 'demo',
+    passwordHash: DEMO_PASSWORD_HASH,
     createdBy: 'system',
     updatedBy: 'system'
   }]);

@@ -1,91 +1,110 @@
 # Testing Strategy
 
-## Scope and priorities
+This strategy describes the current test suite and the verification work still required for the planned product. Tests use Node's built-in test runner, seeded SQLite data, and local stubs. They do not call a real LLM, OCR provider, identity provider, or external payroll system.
 
-The assistant handles sensitive salary and tax data, so tests prioritize authorization boundaries, grounded answers, deterministic money calculations, and safe failure behavior. Tests use seeded or factory data and never call a real LLM, OCR provider, identity provider, or external payroll system.
+## 1. Current Test Inventory
 
-## Test levels
+| File | Current coverage |
+|---|---|
+| `test/api.test.js` | Health, login/refresh, protected routes, unsupported upload behavior, request validation, response envelope, and sanitized errors. |
+| `test/repositories.test.js` | User-scoped reads, repository CRUD, soft delete, and payroll persistence/update behavior. |
+| `test/requirements.test.js` | Security guard, LLM text extraction, grounded prompt content, intent/tool planning, refusal before provider calls, 80C simulation, and audit logging. |
+| `test/services.test.js` | Deduction aggregation, seeded reimbursement reads, mock OCR upload behavior, and JWT service behavior. |
+| `test/utils.test.js` | Money conversion/summing and API success/error envelopes. |
 
-| Level | Purpose | Examples |
+The current suite contains 24 tests and validates the implemented prototype. It does not cover every capability described in the broader product design.
+
+## 2. Test Levels
+
+| Level | Purpose | Current examples |
 |---|---|---|
-| Unit | Verify one rule or adapter quickly | money conversion, intent classification, tax cap, OCR fixture selection |
-| Service/integration | Verify repository, service, and database contracts together | user-scoped context, eligibility plus persistence, document upload plus OCR |
-| API/security | Verify HTTP status, auth, validation, headers, limits, and response envelopes | JWT access, upload MIME/size, cross-user IDs, prompt injection |
-| Contract | Verify provider and persistence boundaries | LLM response extraction, base64 validation, model field mapping |
-| E2E/demo | Verify the employee journey | login -> upload -> payroll query -> grounded answer -> simulation -> checklist |
+| Unit | Verify deterministic functions in isolation. | Money utilities, security filtering, intent planning, provider text extraction, tax simulation. |
+| Repository/integration | Verify Sequelize models, seed data, repository scope, and persistence behavior. | User-scoped queries, CRUD, soft delete, payroll updates. |
+| API/security | Verify routes, status codes, auth, validation, response envelopes, and upload handling. | Login, refresh, `/me`, missing bearer token, unsupported upload, required `financialYear`. |
+| Service integration | Verify orchestration across repositories and services. | Context assembly, mock OCR metadata, audit events, deterministic simulation. |
+| E2E/demo | Verify a complete employee workflow against a clean seeded database. | Mostly planned; the current suite covers only portions of the journey. |
 
-## Requirement traceability
+## 3. Implemented Requirements
 
-| ID | Scenario / expected result | Level |
-|---|---|---|
-| AUTH-01 | Missing bearer token returns 401 and uniform error envelope | API |
-| AUTH-02 | Malformed, expired, wrong issuer, or wrong audience token returns 401 | API/security |
-| AUTH-03 | Valid token sets scope from JWT `sub`; body/query `userId` cannot override it | API/security |
-| AUTH-04 | Login rejects missing fields and invalid credentials without revealing which value failed | API |
-| AUTH-05 | Valid refresh token issues a new pair; malformed, expired, or unknown-sub refresh token is rejected | API |
-| ISO-01 | Employee A cannot list, read, update, delete, or attach proofs to Employee B documents | API/service |
-| ISO-02 | Employee A cannot read B payroll cycles, deductions, reimbursements, or assistant context | API/service |
-| ISO-03 | Prompt context contains only the authenticated employee ID and records | Service/security |
-| ISO-04 | Document APIs never return raw file bytes or secrets | API |
-| DOC-01 | PDF, PNG, and JPEG uploads are accepted and stored in memory with metadata | API/service |
-| DOC-02 | Unsupported MIME/extension, missing file, empty file, and files over 5 MB are rejected | API |
-| DOC-03 | Mock OCR produces deterministic fields for a payslip and marks status OCR_COMPLETE | Service |
-| DOC-04 | Missing or inconsistent OCR fields do not create invented values; answer states unavailable data | Service/E2E |
-| DOC-05 | Soft-deleted documents are absent from default lists and AI context | Service |
-| PAY-01 | Monthly breakup returns basic, HRA, LTA, special allowance, gross, deductions, and net pay | API |
-| PAY-02 | Payroll deductions are filtered by user, cycle, and PAYROLL scope | Repository/service |
-| PAY-03 | YTD response aggregates the requested financial year only | API/service |
-| PAY-04 | Invalid or unknown cycle returns 404; malformed cycle/FY input returns 4xx | API |
-| PAY-05 | Net-pay explanation identifies known month-to-month changes and does not calculate independently in the LLM | Service/E2E |
-| DED-01 | PF, TDS, and professional tax payroll rows are returned with correct decimal amounts | Service/API |
-| DED-02 | Unknown/inactive type, wrong regime, status, rank, tenure, min/max amount, missing payroll cycle, and missing FY are rejected | Unit/service |
-| DED-03 | 80C aggregate cap counts all types in the aggregate group and reports remaining headroom | Service |
-| DED-04 | Payroll-imported or applied deductions cannot be deleted; employee declarations can be soft-deleted when allowed | Service |
-| REIM-01 | Claim below/above limits, missing cycle, wrong status/rank/tenure, and FY cap overflow are rejected | Unit/service |
-| REIM-02 | Approved or paid claims cannot be deleted; proof attachment requires an owned document | Service/API |
-| TAX-01 | Old-regime additional 80C simulation is capped by headroom and uses the documented simplified rate | Unit |
-| TAX-02 | New-regime simulation refuses unsupported 80C savings and returns zero estimated savings | Unit |
-| TAX-03 | Zero, negative, decimal, very large, malformed, and missing proposed amounts are handled consistently | Unit/API |
-| TAX-04 | Simulation output includes financial year, assumptions, disclaimer, and no claim of legal/compliance advice | Unit/API |
-| AI-01 | Salary/component/deduction/document questions classify to the intended intent | Unit |
-| AI-02 | Prompt includes scoped structured data, OCR text, precomputed tax data, and the exact user question | Unit |
-| AI-03 | Prompt explicitly forbids hallucination, independent calculations, and cross-user disclosure | Unit |
-| AI-04 | Missing facts produce the standard refusal text rather than a guessed number | Service/E2E |
-| AI-05 | Manager salary, foreign tax law, prompt injection, and jailbreak requests are refused before the LLM call | Service/API |
-| AI-06 | Provider failure, timeout, malformed response, and unconfigured provider return sanitized errors | Contract/API |
-| AI-07 | PDF/image base64 validation rejects invalid encoding, both document types together, unsupported image media types, and non-object metadata | Contract |
-| SEC-01 | Helmet headers are present; disallowed CORS origins are rejected | API/security |
-| SEC-02 | Assistant, upload, and auth rate limits return 429 after configured thresholds | API/security |
-| SEC-03 | HTML is stripped from query/prompt fields; injection patterns are rejected | Unit/API |
-| SEC-04 | Unexpected errors expose a client-safe message and code, never stack traces, SQL, tokens, or provider keys | API/security |
-| OPS-01 | Health endpoint returns UP and all success/error responses use the documented envelope | API |
-| OPS-02 | Database bootstrap and seed are repeatable without duplicate active cycles/catalog rows | Integration |
-| UX-01 | Employee-facing answers use simple language and identify source/assumptions where available | E2E/manual |
-| UX-02 | Proof checklist includes missing documents based on declared deductions and proof status | Service/API |
+The current suite verifies these behaviors:
 
-## End-to-end acceptance journeys
+- Health returns `UP` in the standard success envelope.
+- Valid seeded credentials issue access and refresh JWTs.
+- Refresh tokens issue a new token pair.
+- Missing and invalid access credentials return `401` with a sanitized error envelope.
+- Password verification uses the stored `passwordHash` flow.
+- Repository reads are user-scoped for covered repository methods.
+- Repository create, update, and paranoid delete behavior works for covered models.
+- Assistant requests require `financialYear`.
+- Unsupported upload MIME input is rejected safely by the assistant flow.
+- Security middleware strips HTML and rejects prompt-injection patterns.
+- The prompt includes scoped facts, refusal instructions, and the exact question.
+- Unsupported manager-salary questions are refused before context assembly and LLM calls.
+- Context planning selects relevant tools for HRA, deductions, and proof queries.
+- Old-regime 80C simulation is capped and uses the simplified rate.
+- New-regime 80C simulation returns refusal and zero estimated savings.
+- Mock OCR produces request-scoped metadata and fields.
+- Audit events are emitted for upload, assistant, payroll, deduction, reimbursement, payslip, and LLM access paths.
+- Money utilities reject malformed amounts and preserve integer minor-unit behavior.
 
-1. Authenticate the seeded employee, list payroll cycles, view the latest breakup, and verify the displayed net pay equals the seeded record.
-2. Upload a payslip, confirm OCR completion, ask “How much HRA did I receive?”, and verify the response is grounded in the uploaded or structured value.
-3. Ask “What deductions were applied?” and verify PF, TDS, and professional tax are present with correct cycle values.
-4. Ask why net pay changed between two cycles and verify the answer references available payroll facts and does not invent an explanation for missing data.
-5. Run an additional 80C simulation with headroom, at the cap, beyond the cap, and under the new regime; verify assumptions and refusal behavior.
-6. Create a tax declaration that requires proof, retrieve the checklist, upload/link proof, and verify the missing item is removed.
-7. Authenticate as a second employee and attempt every Employee A resource ID; every cross-user read or mutation must fail without revealing existence or contents.
-8. Submit prompt-injection text, unsupported tax-law questions, invalid uploads, malformed tokens, and provider failures; verify safe 4xx/5xx responses and no downstream LLM call where refusal is required.
+## 4. Planned Coverage Gaps
 
-## Fixtures and test isolation
+The following requirements belong to planned APIs or services and should remain pending until those components exist:
 
-- Use two employees with distinct payroll, deduction, reimbursement, and document values so accidental unscoped queries are observable.
-- Use deterministic minor-unit amounts and assert API decimal strings, not floating-point arithmetic.
-- Reset the SQLite database or transaction state between tests; do not depend on test order.
-- Stub `llmClient.query` and assert both prompt content and call count. Never send confidential fixtures to a live provider.
-- Include payslip fixtures with complete fields, missing HRA, conflicting gross/net totals, malformed OCR numbers, and unsupported categories.
+| Area | Required future coverage |
+|---|---|
+| Authorization isolation | Cross-user document, payroll, deduction, reimbursement, and mutation attempts. |
+| Documents | Persisted document CRUD, linking, proof ownership, soft-delete visibility, and raw-byte exclusion. |
+| Payroll | Public cycles, monthly breakup, YTD, unknown-cycle errors, and payroll deduction filtering. |
+| Deductions | Create/update/delete, catalog validation, regime/status/rank/tenure rules, and 80C headroom. |
+| Reimbursements | Claim limits, caps, eligibility, proof attachment, approval/deletion rules, and catalog validation. |
+| Policy APIs | Active catalog listing and user-context filtering. |
+| Provider contract | Timeout/failure handling, malformed provider responses, base64 document validation, and metadata validation. |
+| Security hardening | Helmet/CORS assertions, rate-limit `429` behavior, production local-login restriction, and secret leakage checks. |
+| AI grounding | Missing-data refusal, provider call counts, OCR conflict handling, and post-response numeric validation. |
+| E2E | Login, assistant upload, payroll explanation, deduction breakdown, simulation, and proof workflow. |
 
-## Exit criteria
+## 5. Focused Test Scenarios
 
-The release candidate must pass all unit, service, API/security, and contract tests; all ISO, AI, TAX, and DOC cases must be covered; and the seven acceptance journeys must pass against a clean seeded database. Manual demo checks must confirm that explanations are understandable and that assumptions are visible.
+### Authentication
 
-## Known implementation gap to track
+- Missing, malformed, expired, wrong-issuer, wrong-audience, and refresh-token-as-access-token requests return `401`.
+- Missing login fields and invalid credentials return the same generic authentication failure.
+- A valid refresh token with an unknown subject is rejected.
+- `GET /api/v1/auth/me` returns only the public user projection and never `passwordHash`.
 
-The current checklist route returns an empty list unconditionally. `UX-02` should remain red or pending until checklist generation is connected to declarations, catalog proof requirements, and linked document status.
+### Assistant and privacy
+
+- The prompt contains only the authenticated employee's records.
+- Body/query user IDs cannot change the JWT-derived scope.
+- Manager salary and unsupported foreign-tax questions do not call the LLM.
+- Prompt-injection and jailbreak patterns are rejected before provider calls.
+- Provider failures and unknown errors return sanitized error codes without tokens, SQL, keys, or stack traces.
+
+### Upload and OCR
+
+- PDF, PNG, and JPEG uploads are accepted within the 5 MB limit.
+- Missing, empty, unsupported, and oversized files are rejected.
+- Mock OCR is deterministic and remains request-scoped.
+- Missing or conflicting OCR values are not silently invented.
+
+### Deterministic money and tax
+
+- Decimal strings convert to integer minor units and malformed values fail.
+- 80C simulation is tested below the cap, at the cap, above the cap, with zero/negative values, malformed input, and both tax regimes.
+- Simulation results include assumptions, disclaimer, financial year, refusal, and reason fields where applicable.
+
+## 6. Fixtures and Isolation
+
+- Initialize and seed SQLite in a controlled test setup.
+- Use distinct employee IDs and values when testing user isolation.
+- Assert decimal strings at API boundaries and integer minor units internally.
+- Stub `llmClient.query`; assert prompt content and call count; never contact a live provider.
+- Use complete, missing-field, conflicting, malformed, and unsupported upload fixtures.
+- Avoid test-order dependencies. Reset or recreate database state for tests that mutate shared data.
+
+## 7. Exit Criteria
+
+For the current prototype, `npm test` must pass all existing tests with zero failures, and focused source diagnostics must be clean.
+
+For a future production candidate, all planned isolation, API, provider-contract, AI-grounding, and E2E scenarios must be implemented before claiming full requirement coverage. Checklist behavior remains pending because no checklist route is mounted and declaration/proof mutation APIs are not implemented.

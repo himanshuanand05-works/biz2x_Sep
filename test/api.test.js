@@ -90,6 +90,7 @@ test('protected endpoints reject missing or invalid credentials', async () => {
 test('document upload rejects unsupported files', async () => {
   const form = new FormData();
   form.append('query', 'Explain my payslip');
+  form.append('financialYear', '2026-2027');
   form.append('file', new Blob(['not a PDF'], { type: 'text/plain' }), 'note.txt');
 
   const response = await request('/api/v1/assistant/query', {
@@ -101,6 +102,21 @@ test('document upload rejects unsupported files', async () => {
   assert.equal(response.status, 200);
   assert.equal(response.payload.success, true);
   assert.ok(response.payload.data.answer);
+});
+
+test('assistant requests require financialYear', async () => {
+  const response = await request('/api/v1/assistant/query', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${await getDemoAccessToken()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ query: 'Explain my payslip' })
+  });
+
+  assert.equal(response.status, 422);
+  assert.equal(response.payload.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(response.payload.error.details, ['financialYear']);
 });
 
 test('financial endpoints return the uniform success envelope', async () => {

@@ -166,7 +166,7 @@ test('controller and assembler log actual upload and data-access actions for the
         payrollCycle: '2026-04'
       },
       file: { originalname: 'payslip.pdf' },
-      context: { activeFinancialYear: '2026-2027', latestPayrollCycle: '2026-04' }
+      context: { latestPayrollCycle: '2026-04' }
     };
     const res = {
       status: () => ({ json: () => ({}) })

@@ -28,7 +28,7 @@ export async function queryAssistant(req, res) {
     });
   }
   const result = await promptOrchestrator.answer(userId, query, {
-    financialYear: req.body.financialYear ?? req.context.activeFinancialYear,
+    financialYear: uploadedDocument?.financialYear ?? req.body.financialYear,
     payrollCycle: req.body.payrollCycle ?? req.context.latestPayrollCycle,
     proposed80C: req.body.proposed80C,
     uploadedDocument
@@ -42,7 +42,7 @@ export async function queryAssistant(req, res) {
     details: {
       refusal: result.refusal,
       sources: result.sources,
-      financialYear: req.body.financialYear ?? req.context.activeFinancialYear,
+      financialYear: uploadedDocument?.financialYear ?? req.body.financialYear,
       payrollCycle: req.body.payrollCycle ?? req.context.latestPayrollCycle
     }
   });

@@ -27,8 +27,7 @@ export function defineUserModel(sequelize) {
       taxRegime: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'OLD' },
       taxRegimeDeclaredAt: { type: DataTypes.DATE, allowNull: true },
       taxRegimeLocked: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-      activeFinancialYear: { type: DataTypes.STRING(9), allowNull: true },
-      demoPassword: { type: DataTypes.STRING(100), allowNull: true }, // mock IdP only; never expose in API
+      passwordHash: { type: DataTypes.STRING(255), allowNull: true }, // mock IdP only; never expose in API
       ...sequelizeAuditAttributes(DataTypes)
     },
     { ...sequelizeModelOptions, tableName: 'users' }

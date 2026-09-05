@@ -12,7 +12,7 @@ export function userResponse(user) {
     'userId', 'name', 'email', 'employeeCode', 'department', 'designation',
     'rank', 'employeeType', 'location', 'managerId', 'dateOfJoining',
     'employmentStartDate', 'probationEndDate', 'employmentStatus',
-    'noticePeriodEndDate', 'exitDate', 'taxRegime', 'activeFinancialYear'
+    'noticePeriodEndDate', 'exitDate', 'taxRegime'
   ];
   return Object.fromEntries(publicFields.filter((field) => user[field] !== undefined)
     .map((field) => [field, user[field]]));

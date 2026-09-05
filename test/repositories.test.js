@@ -58,7 +58,6 @@ test('repositories create, update, and soft-delete records', async () => {
     location: 'Bengaluru',
     employmentStatus: 'ACTIVE',
     taxRegime: 'OLD',
-    activeFinancialYear: '2026-2027',
     createdBy: 'system',
     updatedBy: 'system'
   });

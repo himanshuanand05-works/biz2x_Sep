@@ -51,8 +51,11 @@ export function validateAssistantRequest(req, res, next) {
     if (typeof body.query !== 'string' || !body.query.trim()) {
       throw new ValidationError('query is required', ['query']);
     }
+    if (typeof body.financialYear !== 'string' || !body.financialYear.trim()) {
+      throw new ValidationError('financialYear is required', ['financialYear']);
+    }
     for (const field of ['financialYear', 'payrollCycle', 'proposed80C']) optionalString(body, field);
-    if (body.financialYear && !financialYearPattern.test(body.financialYear)) {
+    if (!financialYearPattern.test(body.financialYear)) {
       throw new ValidationError('financialYear must use YYYY-YYYY format', ['financialYear']);
     }
     if (body.payrollCycle && !payrollCyclePattern.test(body.payrollCycle)) {

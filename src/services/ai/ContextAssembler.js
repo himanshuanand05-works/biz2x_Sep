@@ -16,7 +16,7 @@ export class ContextAssembler {
     const userRow = await userRepository.findById(userId);
     if (!userRow) throw new NotFoundError('User not found');
     const user = new UserService(userRow);
-    const fy = financialYear ?? user.activeFinancialYear;
+    const fy = financialYear;
     const requestedTools = new Set(tools);
     const needsPayroll = requestedTools.has('payroll') || requestedTools.has('payrollComparison') || requestedTools.has('ytd');
     const payroll = needsPayroll

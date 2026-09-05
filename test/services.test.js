@@ -32,7 +32,7 @@ test('reimbursement eligibility enforces policy and financial-year caps', async 
 });
 
 test('document service stores metadata and mock OCR output', async () => {
-  const document = await userDocumentService.uploadDocument('emp_101', { originalname: 'sample.pdf' }, { category: 'PAYSLIP', financialYear: '2026-2027', payrollCycle: '2026-04' });
+  const document = await userDocumentService.uploadDocument('emp_101', { originalname: 'sample.pdf' }, { category: 'PAYSLIP', financialYear: '2025-2026', payrollCycle: '2025-03' });
 
   assert.equal(document.category, 'PAYSLIP');
   assert.equal(document.financialYear, '2026-2027');
