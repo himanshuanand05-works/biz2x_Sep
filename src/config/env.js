@@ -43,6 +43,5 @@ export const env = Object.freeze({
   llmApiKey: process.env.LLM_API_KEY ?? '',
   llmModel: process.env.LLM_MODEL ?? 'gemini-1.5-pro',
   llmTemperature: Number(process.env.LLM_TEMPERATURE ?? 0.3),
-  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 30000),
-  llmJsonLimit: process.env.LLM_JSON_LIMIT ?? '8mb'
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 30000)
 });

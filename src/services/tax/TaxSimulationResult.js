@@ -1,6 +1,4 @@
-/**
- * Read-only tax simulation facts passed to the LLM — never invented by the model.
- */
+/** Read-only tax simulation facts passed to the LLM. */
 export class TaxSimulationResult {
   constructor({
     financialYear,

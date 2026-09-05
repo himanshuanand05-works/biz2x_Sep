@@ -28,16 +28,6 @@ export function getModels() {
 }
 
 /**
- * @returns {import('sequelize').Sequelize}
- */
-export function getSequelize() {
-  if (!sequelize) {
-    throw new Error('Sequelize is not initialized');
-  }
-  return sequelize;
-}
-
-/**
  * Defines models, associations, and syncs schema (prototype). Call once at boot.
  * @returns {Promise<{ sequelize: import('sequelize').Sequelize, models: object }>}
  */

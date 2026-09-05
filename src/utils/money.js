@@ -35,27 +35,7 @@ export function fromMinorUnits(minorUnits) {
   return `${sign}${rupees}.${paise}`;
 }
 
-/** @param {number} a @param {number} b */
-export function addMinor(a, b) {
-  return a + b;
-}
-
-/** @param {number} a @param {number} b */
-export function subtractMinor(a, b) {
-  return a - b;
-}
-
 /** @param {number[]} values */
 export function sumMinor(values) {
   return values.reduce((s, v) => s + v, 0);
-}
-
-/**
- * Percentage via scaled integer: rateBps = 2000 → 20.00%.
- * Uses half-up rounding on the division remainder.
- * @param {number} amountMinor
- * @param {number} rateBps
- */
-export function applyRateBps(amountMinor, rateBps) {
-  return Math.round((amountMinor * rateBps) / 10000);
 }

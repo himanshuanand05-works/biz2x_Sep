@@ -1,6 +1,6 @@
 import { deductionService } from '../deductions/DeductionService.js';
 import { deductionTypeCatalogRepository } from '../../repositories/DeductionTypeCatalogRepository.js';
-import { TaxSimulationResult } from '../../domain/valueObjects/TaxSimulationResult.js';
+import { TaxSimulationResult } from './TaxSimulationResult.js';
 import { fromMinorUnits, toMinorUnits } from '../../utils/money.js';
 
 /** Computes bounded tax facts before prompting; the LLM never performs tax math. */

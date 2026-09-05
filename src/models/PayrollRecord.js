@@ -1,5 +1,5 @@
 import { DataTypes } from 'sequelize';
-import { sequelizeAuditAttributes, sequelizeModelOptions } from '../domain/mixins/AuditFields.js';
+import { sequelizeAuditAttributes, sequelizeModelOptions } from './AuditFields.js';
 
 /**
  * Earnings + cached totals. PF/TDS live in deductions (scope PAYROLL).

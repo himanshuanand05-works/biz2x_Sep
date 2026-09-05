@@ -17,8 +17,12 @@ export function sendSuccess(res, data, status = 200) {
  * @param {number} [status=400]
  */
 export function sendError(res, error, status = 400) {
+  const responseError = { message: error.message, code: error.code };
+  if (Array.isArray(error.details) && error.details.length > 0) {
+    responseError.details = error.details;
+  }
   return res.status(status).json({
     success: false,
-    error: { message: error.message, code: error.code }
+    error: responseError
   });
 }

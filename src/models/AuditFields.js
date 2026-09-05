@@ -1,19 +1,4 @@
-/**
- * Shared audit field names mixed into persistent entities.
- * Soft-delete: deletedAt NULL means the row is active.
- */
-export const AuditFields = {
-  createdAt: null,
-  updatedAt: null,
-  deletedAt: null,
-  createdBy: null,
-  updatedBy: null
-};
-
-/**
- * Sequelize column map reused by every paranoid model.
- * @param {import('sequelize').DataTypes} DataTypes
- */
+/** Sequelize column map reused by every paranoid model. */
 export function sequelizeAuditAttributes(DataTypes) {
   return {
     createdBy: { type: DataTypes.STRING(50), allowNull: true },

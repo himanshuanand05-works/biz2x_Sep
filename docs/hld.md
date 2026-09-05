@@ -11,8 +11,8 @@ This HLD describes system context, module boundaries, major flows, and API surfa
 ### Goals
 
 - Authenticated employees can inspect payroll breakups, YTD tax, declared deductions, and reimbursements.
-- Employees can upload proofs (payslips, tax proofs, reimbursement bills); the system stores metadata and **mock** OCR for AI grounding.
-- Employees can add/update/cancel tax declarations and reimbursement claims subject to **policy catalogs** and eligibility services.
+- Employees can upload a payslip with an assistant query; the system uses **mock** OCR for that request without persisting the upload.
+- Seeded document records and policy catalogs provide the prototype's persisted context; declaration and reimbursement mutation APIs are outside the current implementation.
 - A grounded assistant answers natural-language questions using only user-scoped structured data and document excerpts.
 - All money math is deterministic in services; the LLM explains precomputed facts.
 
@@ -96,19 +96,19 @@ Subsequent APIs:
   → (optional) userContextLoader
 ```
 
-### 4.2 Document upload
+### 4.2 Payslip upload with assistant query
 
 ```
-POST /api/v1/documents/upload
+POST /api/v1/assistant/query (multipart/form-data)
   → auth, rateLimit, uploadGuard (5 MB, pdf/png/jpeg)
   → UserDocumentService.uploadDocument
-      → UserDocumentRepository.create (metadata)
       → MockOcrService.extract (canned payload by category)
-      → update status OCR_COMPLETE + mockOcrPayload
-  → 201 { documentId, status, category }
+      → retain OCR result in request context only
+  → PromptOrchestrator.answer
+  → success response; uploaded OCR is discarded
 ```
 
-Buffers are not written to disk in the prototype. API responses never include raw file bytes.
+Buffers and newly extracted OCR are not written to disk in the prototype. API responses never include raw file bytes. Seeded documents may still be read as persisted context.
 
 ### 4.3 Create tax deduction / reimbursement
 
@@ -128,8 +128,9 @@ Payroll-imported rows (`source = PAYROLL_IMPORT`, `scope = PAYROLL`) are not emp
 ```
 POST /api/v1/assistant/query
   → auth, stricter rate limit, securityGuard, userContextLoader
-  → PromptingService.answerGroundedQuery
-      → classify intent
+    → PromptOrchestrator.answer
+      → classify one or more intents with ContextToolPlanner
+      → add context tools incrementally for every matched intent
       → ContextAssembler: user, payroll, deductions, reimbursements, documents
       → TaxCalculatorService if TAX_SIMULATION
       → PromptOrchestrator.buildGroundedPrompt(userQuery, scopedContext, simulationResult)
@@ -152,10 +153,6 @@ All errors: `{ "success": false, "error": { "message": "...", "code": "..." } }`
 | `POST` | `/api/v1/auth/token` | No | Mock login; IP rate limit |
 | `POST` | `/api/v1/auth/refresh` | No | Refresh JWT |
 | `GET` | `/api/v1/auth/me` | Yes | Claims + profile snapshot |
-| `POST` | `/api/v1/documents/upload` | Yes | Multipart; 5 MB |
-| `GET` | `/api/v1/documents` | Yes | Filter by category, FY, status |
-| `GET` | `/api/v1/documents/:id` | Yes | User-scoped |
-| `DELETE` | `/api/v1/documents/:id` | Yes | Soft delete |
 | `GET` | `/api/v1/payroll/cycles` | Yes | List cycles for user |
 | `GET` | `/api/v1/payroll/:cycle/breakup` | Yes | Earnings + PAYROLL deductions |
 | `GET` | `/api/v1/payroll/ytd` | Yes | FY aggregates |
@@ -165,14 +162,7 @@ All errors: `{ "success": false, "error": { "message": "...", "code": "..." } }`
 | `POST` | `/api/v1/deductions` | Yes | Eligibility gated |
 | `PATCH` | `/api/v1/deductions/:id` | Yes | Re-validate |
 | `DELETE` | `/api/v1/deductions/:id` | Yes | Soft delete if allowed |
-| `GET` | `/api/v1/deductions/eligible` | Yes | Types user can declare now |
-| `POST` | `/api/v1/reimbursements` | Yes | Eligibility gated |
-| `POST` | `/api/v1/reimbursements/:id/proof` | Yes | Link document |
-| `GET` | `/api/v1/reimbursements` | Yes | List |
-| `GET` | `/api/v1/reimbursements/eligible` | Yes | Claimable types |
-| `DELETE` | `/api/v1/reimbursements/:id` | Yes | Soft delete if allowed |
 | `POST` | `/api/v1/assistant/query` | Yes | Grounded Q&A |
-| `GET` | `/api/v1/assistant/checklist` | Yes | Missing proofs (deterministic + optional LLM prose) |
 
 Suggested rate limits: assistant 20/15 min/user; upload 10/15 min/user; token 10/15 min/IP.
 
@@ -187,8 +177,8 @@ Suggested rate limits: assistant 20/15 min/user; upload 10/15 min/user; token 10
 | **Deduction** | Unified row: PAYROLL (PF, TDS, PT), TAX_DECLARATION (80C/80D/…), or EMPLOYER (informational). |
 | **DeductionTypeCatalog** | Policy: limits, `aggregateGroup`, regimes, who may use the type. |
 | **Reimbursement** | Claim against a catalog type; statuses DRAFT → … → PAID. |
-| **UserDocument** | File metadata + mock OCR; optional `linkedEntityType` / `linkedEntityId`. |
-| **TaxSimulationResult** | Value object: precomputed savings + explicit assumptions for the LLM. |
+| **UserDocument** | Seeded/persisted file metadata + mock OCR; newly uploaded payslip OCR is request-scoped and not persisted. |
+| **TaxSimulationResult** | Tax service result: precomputed savings + explicit assumptions for the LLM. |
 
 Money in APIs is decimal **strings** (`"12500.00"`). Internally: integer paise.
 
@@ -199,13 +189,9 @@ Money in APIs is decimal **strings** (`"12500.00"`). Internally: integer paise.
 | Intent | Example | Primary sources |
 |---|---|---|
 | `SALARY_EXPLAIN` | Why is net lower this month? | Cycle compare, reimbursements |
-| `COMPONENT_LOOKUP` | How much HRA? | PayrollRecord |
 | `DEDUCTION_BREAKDOWN` | What was deducted? | `deductions` scope PAYROLL |
-| `YTD_SUMMARY` | Tax paid YTD? | PAYROLL deductions by type across FY |
 | `TAX_SIMULATION` | Extra ₹50k in 80C? | TaxCalculator + catalog headroom |
-| `COMPONENT_EDUCATION` | Explain PF | Catalog description + user row |
 | `PROOF_CHECKLIST` | Missing proofs? | TAX_DECLARATION vs proof links |
-| `ELIGIBILITY_OPTIONS` | What can I claim? | Eligibility `getAvailableTypes` |
 | `DOCUMENT_GROUNDED` | What does Form 16 show? | `mockOcrPayload` |
 
 ---
@@ -214,7 +200,7 @@ Money in APIs is decimal **strings** (`"12500.00"`). Internally: integer paise.
 
 - **Process:** Single Node.js LTS process (`server.js` / `src/index.js`).
 - **Config:** `dotenv` — `JWT_SECRET`, `ALLOWED_ORIGINS`, rate-limit env, LLM keys, `DB_DIALECT=sqlite` (implied).
-- **State:** Sequelize SQLite memory + Multer buffers. Restart = empty DB; boot seed from `src/fixtures/`.
+- **State:** Sequelize SQLite memory for seeded records plus request-scoped Multer/OCR buffers. Restart = empty DB; boot seed from `src/fixtures/`.
 - **UI:** Static files under `public/` or same origin; CORS whitelist for other origins.
 
 Production HLD delta: PostgreSQL, object storage, OIDC, OCR worker queue, possibly split AI worker.

@@ -1,5 +1,5 @@
 import { DataTypes } from 'sequelize';
-import { sequelizeAuditAttributes, sequelizeModelOptions } from '../domain/mixins/AuditFields.js';
+import { sequelizeAuditAttributes, sequelizeModelOptions } from './AuditFields.js';
 
 /**
  * Unified payroll + tax-declaration + employer contribution rows.

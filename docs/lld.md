@@ -4,6 +4,8 @@
 
 This document defines class structures, entity models, database schemas, service contracts, security middleware, monetary precision rules, and AI prompting strategy for the Node.js/Express AI Financial Wellness Assistant.
 
+**Implementation note:** This prototype currently exposes authentication and the grounded assistant query flow. Uploaded payslip OCR is request-scoped and is not persisted. The document, repository, catalog, deduction, and reimbursement models support seeded context and future API expansion, but planned CRUD and eligibility routes described below are not currently wired.
+
 **Design principles carried forward from architecture:**
 
 - **Deterministic math, generative explanation:** All salary, tax, and reimbursement calculations run in JavaScript services. The LLM explains and contextualizes precomputed facts—it never invents numbers.
@@ -27,7 +29,7 @@ src/
 │   │   ├── deductions.routes.js
 │   │   └── assistant.routes.js   # /api/v1/assistant/*
 │   ├── controllers/              # Thin handlers: validate → service → respond
-│   └── validators/               # Joi/Zod schemas per route
+│   └── validators/               # Custom request validation middleware per route
 │
 ├── middleware/                   # Security & access control
 │   ├── authGuard.js              # JWT validation + req.user injection
@@ -38,20 +40,6 @@ src/
 │   ├── securityGuard.js          # XSS strip + prompt-injection filter
 │   ├── errorHandler.js
 │   └── requestLogger.js
-│
-├── domain/                       # Data models (plain classes / typedefs)
-│   ├── User.js
-│   ├── PayrollRecord.js
-│   ├── Deduction.js
-│   ├── DeductionTypeCatalog.js   # Policy-driven master list of deduction types
-│   ├── Reimbursement.js
-│   ├── ReimbursementTypeCatalog.js
-│   ├── UserDocument.js
-│   ├── mixins/
-│   │   └── AuditFields.js        # createdAt, updatedAt, deletedAt helpers
-│   └── valueObjects/
-│       ├── Money.js              # Integer minor-units wrapper
-│       └── TaxSimulationResult.js
 │
 ├── repositories/                 # Data access (in-memory now; PostgreSQL later)
 │   ├── UserRepository.js
@@ -64,7 +52,8 @@ src/
 │
 ├── services/
 │   ├── identity/
-│   │   └── LocalOAuth2Service.js # Mock IdP: issue + validate JWT
+│   │   ├── LocalOAuth2Service.js # Mock IdP: issue + validate JWT
+│   │   └── UserService.js        # Employee eligibility context
 │   ├── documents/
 │   │   ├── UserDocumentService.js
 │   │   └── MockOcrService.js     # Returns canned structured OCR payloads
@@ -72,24 +61,22 @@ src/
 │   │   ├── PayrollQueryService.js
 │   │   └── SalaryBreakupService.js
 │   ├── tax/
-│   │   └── TaxCalculatorService.js
+│   │   ├── TaxCalculatorService.js
+│   │   └── TaxSimulationResult.js
 │   ├── deductions/
-│   │   ├── DeductionService.js
-│   │   └── DeductionEligibilityService.js  # Validates add/remove against policy + user context
-│   ├── reimbursements/
-│   │   ├── ReimbursementService.js
-│   │   └── ReimbursementEligibilityService.js
+│   │   └── DeductionService.js
+│   ├── reimbursements/                    # Repository-backed seeded context
 │   ├── policy/
-│   │   └── PolicyCatalogService.js         # Loads/versioned tax & benefit policy configs
+│   │   └── CompanyPolicyService.js
 │   └── ai/
-│       ├── PromptingService.js   # Orchestrates grounded Q&A
-│       ├── PromptTemplates.js    # System + task templates
+│       ├── queryIntent.js        # Assistant intent values
+│       ├── ContextToolPlanner.js # Incremental pattern-based intent planning
+│       ├── PromptOrchestrator.js # Orchestrates grounded Q&A
 │       ├── ContextAssembler.js   # Builds JSON context blocks
 │       └── LlmClient.js          # Provider adapter (Gemini/OpenAI)
 │
 ├── utils/
 │   ├── money.js                  # toMinorUnits, fromMinorUnits, add, subtract
-│   ├── financialYear.js
 │   └── apiResponse.js            # { success, data } / { success, error }
 │
 └── config/
@@ -306,7 +293,7 @@ Every persistent entity (except immutable value objects and catalog snapshots re
 
 ```javascript
 /**
- * Mixed into all domain entities via AuditFields helper or explicit fields.
+ * Applied to all Sequelize models via the shared AuditFields helper or explicit fields.
  */
 const AuditFields = {
   createdAt: null,    // TIMESTAMP — row first inserted
@@ -1078,7 +1065,9 @@ export function applyRateBps(amountMinor, rateBps) {
 
 Eligibility is **not** a field the client sets arbitrarily. Whenever a user adds, updates, or removes a deduction or reimbursement, the corresponding eligibility service evaluates rules using **user context**, **catalog limits**, and **existing aggregates**.
 
-### 6.1 `EligibilityResult` Value Object
+### 6.1 Future eligibility design (not currently wired)
+
+The following sections describe a future policy-mutation design. The eligibility services and value object are not part of the current codebase; current tests and APIs use seeded deductions/reimbursements and deterministic tax calculations.
 
 ```javascript
 class EligibilityResult {
@@ -1214,26 +1203,9 @@ DELETE /api/v1/deductions/:id  (soft delete)
 ```javascript
 class UserDocumentService {
   async uploadDocument(userId, file, { category, financialYear, payrollCycle }) {
-    // 1. Validate via uploadGuard constraints (already applied at middleware)
-    // 2. Persist metadata via UserDocumentRepository.create()
-    // 3. Enqueue/trigger MockOcrService.extract()
-    // 4. Return document record (without raw buffer in API response)
-  }
-
-  async linkDocument(documentId, { entityType, entityId }) {
-    // Updates linkedEntityType / linkedEntityId
-    // Called by ReimbursementService.attachProof() or DeductionService
-  }
-
-  async getDocumentsByUser(userId, { category, financialYear, status }) { /* ... */ }
-
-  async getDocumentContextForAi(userId) {
-    // Returns sanitized OCR text + metadata for PromptingService
-    // Excludes raw buffers; includes documentId for source citation
-  }
-
-  async triggerOcrProcessing(documentId) {
-    // Idempotent re-run of mock OCR (prototype only)
+    // uploadGuard validates the file before this method is called
+    // Run deterministic OCR and return request-scoped metadata + payload
+    // Do not persist the newly uploaded bytes or OCR result
   }
 }
 ```
@@ -1241,16 +1213,15 @@ class UserDocumentService {
 ### 7.3 Upload Flow
 
 ```
-Client POST /api/v1/documents/upload
+Client POST /api/v1/assistant/query (multipart/form-data)
   → authGuard (JWT)
   → rateLimitByUser
   → uploadGuard (5 MB, pdf/png/jpeg)
-  → documentsController.upload
   → UserDocumentService.uploadDocument
-      → UserDocumentRepository.create
       → MockOcrService.extract
-      → UserDocumentRepository.update (status=OCR_COMPLETE, mockOcrPayload)
-  → 201 { success: true, data: { documentId, status, category } }
+      → attach OCR result to the current assistant context
+  → PromptOrchestrator.answer
+  → success response; OCR result is discarded after the request
 ```
 
 ---
@@ -1267,15 +1238,13 @@ class MockOcrService {
    * Deterministic mock: selects canned payload by document category
    * and optionally by payrollCycle / financialYear from metadata.
    */
-  async extract(documentId, { category, fileName, payrollCycle, financialYear }) {
+  async extract(documentId, category, fileMeta) {
     const template = this.getMockPayloadForCategory(category);
     return {
       documentId,
-      extractedAt: new Date().toISOString(),
-      confidence: 0.95,           // Simulated
       fields: template.fields,    // Key-value pairs
       rawText: template.rawText,  // Plain text block for AI grounding
-      parserVersion: 'mock-v1'
+      extractedData: template.fields
     };
   }
 
@@ -1473,55 +1442,51 @@ Every repository method signature includes `userId` as the first filter paramete
 
 ---
 
-## 11. Prompting Service (AI Orchestration)
+## 11. Prompt Orchestrator (AI Orchestration)
 
-`PromptingService` handles document-grounded Q&A, structured payroll queries, tax simulations, component explanations, and proof checklists.
+`PromptOrchestrator` handles document-grounded Q&A, structured payroll queries, tax simulations, and proof checklists. `ContextToolPlanner` uses deterministic pattern matching and can accumulate more than one intent for a query.
 
 ### 11.1 Supported Query Intents
 
 | Intent | Example Query | Data Sources |
 |---|---|---|
 | `SALARY_EXPLAIN` | "Why is my net salary lower this month?" | PayrollQueryService.compareCycles, reimbursements |
-| `COMPONENT_LOOKUP` | "How much HRA did I receive?" | PayrollRecord for cycle |
 | `DEDUCTION_BREAKDOWN` | "What deductions were applied?" | `deductions` table (`scope=PAYROLL`) for cycle + catalog labels |
-| `YTD_SUMMARY` | "How much tax have I paid YTD?" | Aggregated PAYROLL deductions by `typeCode` across FY |
 | `TAX_SIMULATION` | "If I invest ₹50,000 more in 80C?" | TaxCalculatorService + `aggregateGroup` headroom from catalog |
-| `COMPONENT_EDUCATION` | "Explain my PF deduction" | Catalog `description` + user's PAYROLL deduction row |
 | `PROOF_CHECKLIST` | "What proofs am I missing?" | TAX_DECLARATION deductions + proof link status |
-| `ELIGIBILITY_OPTIONS` | "What reimbursements can I claim?" | ReimbursementEligibilityService.getAvailableTypes |
 | `DOCUMENT_GROUNDED` | "What does my Form 16 show?" | UserDocument.mockOcrPayload |
 
 ### 11.2 Service Flow
 
 ```javascript
-class PromptingService {
-  async answerGroundedQuery(userId, query, { payrollCycle, financialYear } = {}) {
+class PromptOrchestrator {
+  async answer(userId, query, options = {}) {
     // 1. securityGuard already sanitized query; refusal rules run before any provider call
-    const intent = this.classifyIntent(query);
+    const plan = ContextToolPlanner.plan(query, options);
 
     // 2. Deterministic pre-computation (never delegate math to LLM)
-    const userContext = await ContextAssembler.assembleUserContext(userId);
-    const payrollContext = await ContextAssembler.assemblePayrollContext(userId, payrollCycle);
-    const documentContext = await ContextAssembler.assembleDocumentContext(userId);
-    const deductionContext = await ContextAssembler.assembleDeductionContext(userId, financialYear);
-    const reimbursementContext = await ContextAssembler.assembleReimbursementContext(userId, financialYear);
+    const context = await ContextAssembler.assemble(userId, {
+      ...options,
+      tools: plan.tools,
+      documentId: plan.documentId,
+      policyQuery: plan.policyQuery
+    });
 
     let simulationResult = null;
-    if (intent === 'TAX_SIMULATION') {
-      simulationResult = await TaxCalculatorService.calculateFromQuery(userId, query, financialYear);
+    if (plan.intents.includes('TAX_SIMULATION') && options.proposed80C != null) {
+      simulationResult = await TaxCalculatorService.calculate80CSavings(
+        context.userProfile,
+        options.proposed80C,
+        options.financialYear ?? context.payroll?.financialYear
+      );
     }
 
     // 3. Build grounded prompt from scoped context
-    const prompt = PromptOrchestrator.buildGroundedPrompt(query, contexts, simulationResult);
+    const prompt = this.buildGroundedPrompt(query, context, simulationResult);
 
-    // 4. Call LLM; post-validate response
-    const rawAnswer = await LlmClient.query(prompt);
-    return this.validateAndFormatResponse(rawAnswer, { contexts, simulationResult });
-  }
-
-  async buildChecklist(userId, financialYear) {
-    // Deterministic: declared deductions without PROOF_SUBMITTED/VERIFIED
-    // LLM optionally formats checklist prose from structured missing-proof list
+    // 4. Call LLM with the grounded prompt
+    const result = await LlmClient.query({ prompt });
+    return { answer: result.text, intent: plan.intent, intents: plan.intents };
   }
 }
 ```
@@ -1614,8 +1579,8 @@ STRICT RULES:
 |---|---|
 | Pre-compute all numbers in services | TaxCalculatorService, PayrollQueryService |
 | Pass numbers as read-only JSON | ContextAssembler |
-| Post-response validation | PromptingService.validateAndFormatResponse — regex-scan for currency amounts not in context |
-| Intent classification routes simulations to deterministic engine | PromptingService.classifyIntent |
+| Grounded prompt construction | PromptOrchestrator.buildGroundedPrompt — injects scoped facts and refusal rules |
+| Intent classification routes simulations to deterministic engine | ContextToolPlanner.classifyIntents plus PromptOrchestrator plan checks |
 | Temperature ≤ 0.3 for factual queries | LlmClient config |
 | Structured output mode when supported | LlmClient |
 

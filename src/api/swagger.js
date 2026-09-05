@@ -14,23 +14,42 @@ export const swaggerDocument = {
         '/auth/token': { post: { summary: 'Issue local development tokens', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } } } } }, responses: { 200: { description: 'Token pair' }, 401: { description: 'Invalid credentials' } } } },
         '/auth/refresh': { post: { summary: 'Refresh an access token', responses: { 200: { description: 'Token pair' } } } },
         '/auth/me': { get: { security: [{ bearerAuth: [] }], summary: 'Get the current employee profile', responses: { 200: { description: 'Profile' } } } },
-        '/assistant/query': { post: { security: [{ bearerAuth: [] }], summary: 'Ask a grounded financial question', responses: { 200: { description: 'Grounded answer' } } } },
-        '/llm/query': { post: { security: [{ bearerAuth: [] }], summary: 'Send a prompt and optional base64 document to the LLM wrapper', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string' }, pdfBase64: { type: 'string' }, imageBase64: { type: 'string' }, imageMediaType: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] }, metadata: { type: 'object' } } } } } }, responses: { 200: { description: 'LLM response' }, 422: { description: 'Invalid prompt or document payload' }, 502: { description: 'LLM provider failure' } } } }
-        , '/documents/upload': { post: { security: [{ bearerAuth: [] }], summary: 'Upload a financial document', responses: { 201: { description: 'Document metadata and OCR result' } } } }
-        , '/documents': { get: { security: [{ bearerAuth: [] }], summary: 'List employee documents', responses: { 200: { description: 'Documents' } } } }
-        , '/documents/{id}': { get: { security: [{ bearerAuth: [] }], summary: 'Get a document' }, delete: { security: [{ bearerAuth: [] }], summary: 'Archive a document' } }
-        , '/payroll/cycles': { get: { security: [{ bearerAuth: [] }], summary: 'List payroll cycles' } }
-        , '/payroll/{cycle}/breakup': { get: { security: [{ bearerAuth: [] }], summary: 'Get a payroll breakup' } }
-        , '/payroll/ytd': { get: { security: [{ bearerAuth: [] }], summary: 'Get year-to-date payroll' } }
-        , '/policy/deduction-types': { get: { security: [{ bearerAuth: [] }], summary: 'List deduction policy types' } }
-        , '/policy/reimbursement-types': { get: { security: [{ bearerAuth: [] }], summary: 'List reimbursement policy types' } }
-        , '/deductions': { get: { security: [{ bearerAuth: [] }], summary: 'List deductions' }, post: { security: [{ bearerAuth: [] }], summary: 'Create a deduction' } }
-        , '/deductions/{id}': { patch: { security: [{ bearerAuth: [] }], summary: 'Update a deduction' }, delete: { security: [{ bearerAuth: [] }], summary: 'Archive a deduction' } }
-        , '/deductions/eligible': { get: { security: [{ bearerAuth: [] }], summary: 'List eligible deduction types' } }
-        , '/reimbursements': { get: { security: [{ bearerAuth: [] }], summary: 'List reimbursements' }, post: { security: [{ bearerAuth: [] }], summary: 'Create a reimbursement' } }
-        , '/reimbursements/{id}/proof': { post: { security: [{ bearerAuth: [] }], summary: 'Attach reimbursement proof' } }
-        , '/reimbursements/{id}': { delete: { security: [{ bearerAuth: [] }], summary: 'Archive a reimbursement' } }
-        , '/reimbursements/eligible': { get: { security: [{ bearerAuth: [] }], summary: 'List eligible reimbursement types' } }
-        , '/assistant/checklist': { get: { security: [{ bearerAuth: [] }], summary: 'Get the proof checklist' } }
+        '/assistant/query': {
+            post: {
+                security: [{ bearerAuth: [] }],
+                summary: 'Ask a grounded question with an optional payslip upload',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'multipart/form-data': {
+                            schema: {
+                                type: 'object',
+                                required: ['query'],
+                                properties: {
+                                    query: { type: 'string' },
+                                    file: { type: 'string', format: 'binary' },
+                                    financialYear: { type: 'string' },
+                                    payrollCycle: { type: 'string' },
+                                    proposed80C: { type: 'string' }
+                                }
+                            }
+                        },
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['query'],
+                                properties: {
+                                    query: { type: 'string' },
+                                    financialYear: { type: 'string' },
+                                    payrollCycle: { type: 'string' },
+                                    proposed80C: { type: 'string' }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: { 200: { description: 'Grounded answer' } }
+            }
+        },
     }
 };

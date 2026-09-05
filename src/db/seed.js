@@ -85,7 +85,8 @@ function documentRecord({
   linkedEntityId = null,
   financialYear = null,
   payrollCycle = null,
-  status = 'OCR_COMPLETE'
+  status = 'OCR_COMPLETE',
+  mockOcrPayload = ocrFixtures[category] ?? ocrFixtures.OTHER
 }) {
   return {
     documentId,
@@ -95,7 +96,7 @@ function documentRecord({
     mimeType: 'application/pdf',
     fileSizeBytes: 128000,
     status,
-    mockOcrPayload: ocrFixtures[category] ?? ocrFixtures.OTHER,
+    mockOcrPayload,
     linkedEntityType,
     linkedEntityId,
     financialYear,
@@ -492,6 +493,32 @@ export async function seedDatabase() {
       documentId: 'doc_101_payslip_04', userId: DEMO_USER_ID, category: 'PAYSLIP',
       fileName: 'jane-doe-april-2026-payslip.pdf', linkedEntityType: 'PAYROLL_CYCLE',
       linkedEntityId: '2026-04', financialYear: '2026-2027', payrollCycle: '2026-04'
+    }),
+    documentRecord({
+      documentId: 'doc_101_payslip_missing_05', userId: DEMO_USER_ID, category: 'PAYSLIP',
+      fileName: 'jane-doe-may-2026-incomplete-payslip.pdf', linkedEntityType: 'PAYROLL_CYCLE',
+      linkedEntityId: '2026-05', financialYear: '2026-2027', payrollCycle: '2026-05',
+      mockOcrPayload: {
+        fields: {
+          employeeName: 'Jane Doe', employeeCode: 'EMP101', payrollCycle: '2026-05',
+          basic: '75000.00', grossPay: '150000.00'
+        },
+        rawText: 'PAYSLIP FOR MAY 2026\nEmployee: Jane Doe\nGross: 150000.00\nHRA: [MISSING]\nNet pay: [MISSING]'
+      }
+    }),
+    documentRecord({
+      documentId: 'doc_101_payslip_inconsistent_06', userId: DEMO_USER_ID, category: 'PAYSLIP',
+      fileName: 'jane-doe-june-2026-inconsistent-payslip.pdf', linkedEntityType: 'PAYROLL_CYCLE',
+      linkedEntityId: '2026-06', financialYear: '2026-2027', payrollCycle: '2026-06',
+      mockOcrPayload: {
+        fields: {
+          employeeName: 'Jane Doe', employeeCode: 'EMP101', payrollCycle: '2026-06',
+          basic: '75000.00', hra: '30000.00', specialAllowance: '15000.00',
+          grossPay: '160000.00', providentFund: '9000.00', professionalTax: '200.00',
+          incomeTaxTds: '22200.00', netPay: '140000.00'
+        },
+        rawText: 'PAYSLIP FOR JUNE 2026\nBasic: 75000.00\nHRA: 30000.00\nSpecial allowance: 15000.00\nGross: 160000.00\nNet: 140000.00'
+      }
     }),
     documentRecord({
       documentId: 'doc_101_tax_elss', userId: DEMO_USER_ID, category: 'TAX_PROOF',

@@ -1,245 +1,362 @@
 # AI Financial Wellness Assistant
 
-A secure, API-first prototype that helps employees understand salary components, payroll deductions, reimbursements, year-to-date values, uploaded payslips, and simplified tax-saving scenarios.
+Secure, API-first prototype for employee payroll explanations, payslip grounding, deductions, reimbursements, tax simulations, and proof-check workflows.
 
-The application uses Express, Sequelize, and SQLite by default. Payroll and policy data are seeded for a demo employee. Uploaded documents use in-memory storage and deterministic mock OCR. The LLM is used only for grounded explanations; financial calculations are performed by backend services.
+This repository is a single-service Express application with Sequelize and SQLite in-memory persistence for the prototype. The LLM is used to explain backend-grounded facts, not to calculate payroll or invent numbers. Every employee query is scoped to the authenticated JWT subject.
 
-## Requirements
+## Design documentation
+
+The detailed design for this project lives in the docs folder:
+
+- [docs/architecture.md](docs/architecture.md) — system architecture, boundaries, security model, and design principles
+- [docs/hld.md](docs/hld.md) — high-level design, runtime flows, APIs, and product intent model
+- [docs/lld.md](docs/lld.md) — class-level design, services, models, and implementation notes
+- [docs/database.md](docs/database.md) — Sequelize schema, entity relationships, and persistence strategy
+- [docs/testing-strategy.md](docs/testing-strategy.md) — validation and test expectations for the prototype
+
+## Current implementation status
+
+This project is a prototype, not a full payroll platform. The currently wired application surface is deliberately small and matches the implementation in the codebase:
+
+- health and service metadata endpoints
+- JWT-based mock authentication flow
+- grounded assistant query endpoint with optional payslip upload
+- seeded employee, payroll, document, and catalog data for demo work
+
+Planned but not currently exposed as public routes are broader payroll, deduction, reimbursement, and document management APIs described in the design docs.
+
+## System overview
+
+```text
+Client
+  -> Express app and security middleware
+     -> JWT auth, request validation, upload guard, security filter
+     -> user-scoped AI orchestration
+        -> ContextToolPlanner selects a minimal context set
+        -> ContextAssembler reads only allowed employee data
+        -> deterministic payroll/tax services compute facts
+        -> PromptOrchestrator builds grounded prompts
+        -> LlmClient calls the configured LLM wrapper
+     -> Sequelize repositories -> SQLite :memory: (prototype)
+```
+
+### Architectural boundaries
+
+- Controllers do not access Sequelize models directly.
+- Repositories enforce `userId` filters for employee data.
+- Uploaded file buffers and request-scoped OCR are kept in memory only for the current assistant request.
+- The LLM receives only grounded, user-scoped context and never a raw database query.
+- Financial calculations remain deterministic in backend services.
+
+For the full architecture rationale and threat model, see [docs/architecture.md](docs/architecture.md) and [docs/hld.md](docs/hld.md).
+
+## Setup
+
+### Prerequisites
 
 - Node.js 20 or later
 - npm 10 or later
-- An LLM wrapper endpoint and API key for assistant responses
-- PostgreSQL only if the optional PostgreSQL configuration is used
+- An HTTP LLM wrapper and API key for assistant responses
 
-## Install and run
+### Install and run
 
 ```powershell
 npm install
-Copy-Item .env.example .env
+```
+
+Create a `.env` file in the project root:
+
+```dotenv
+NODE_ENV=development
+PORT=3000
+ALLOWED_ORIGINS=http://localhost:3000
+JWT_SECRET=replace-with-a-long-random-development-secret
+JWT_ISSUER=local-idp
+JWT_AUDIENCE=financial-wellness-api
+JWT_ACCESS_EXPIRES=1h
+JWT_REFRESH_EXPIRES=7d
+DB_DIALECT=sqlite
+DB_STORAGE=:memory:
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+RATE_LIMIT_ASSISTANT_MAX=20
+RATE_LIMIT_UPLOAD_MAX=10
+RATE_LIMIT_AUTH_MAX=10
+MAX_FILE_SIZE_BYTES=5242880
+LLM_PROVIDER=gemini
+LLM_BASE_URL=https://your-llm-wrapper.example.com
+LLM_API_KEY=replace-with-your-llm-api-key
+LLM_MODEL=gemini-1.5-pro
+LLM_TEMPERATURE=0.3
+LLM_TIMEOUT_MS=30000
+```
+
+Start the development server:
+
+```powershell
 npm run dev
 ```
 
-The API listens on `http://localhost:3000` by default.
-
-For a production-style start:
+Run a production-style local start:
 
 ```powershell
 npm start
 ```
 
-The process initializes the database and seed data on startup. With the default SQLite `:memory:` database, all data is lost when the process stops or restarts.
+The API will be available at `http://localhost:3000` and Swagger documentation at `http://localhost:3000/api-docs`.
 
-## Environment configuration
+### Environment notes
 
-Create `.env` in the project root. The application reads environment variables once during startup, so restart the process after changing `.env`.
+The prototype defaults to SQLite in memory. A restart clears the database, and the app re-seeds the demo data on boot.
 
-### Minimal local configuration
+## Demo data and login
 
-```dotenv
-NODE_ENV=development
-PORT=3000
-JWT_SECRET=replace-with-a-long-random-development-secret
-LLM_BASE_URL=https://your-llm-wrapper.example.com
-LLM_API_KEY=replace-with-your-llm-api-key
-```
+The seed data is deterministic and runs once when the database has no users. The primary demo employee is:
 
-Never commit `.env` or put real secrets in source control. Use a secret manager in a deployed environment.
+| Field | Value |
+|---|---|
+| Name | Jane Doe |
+| Email | `jane@company.com` |
+| Password | `demo` |
+| Employee ID | `emp_101` |
+| Tax regime | `OLD` |
+| Financial year | `2026-2027` |
+| Payroll cycles | `2026-03`, `2026-04`, `2026-05` |
 
-### Complete variable reference
+Jane's seeded April 2026 records include:
 
-| Variable | Default | Required | Effect |
-|---|---|---:|---|
-| `NODE_ENV` | `development` | No | Sets the runtime mode. `production` disables Sequelize SQL logging and changes error handling behavior. |
-| `PORT` | `3000` | No | HTTP port used by `src/index.js`. |
-| `ALLOWED_ORIGINS` | `http://localhost:3000` | No | Comma-separated browser origins allowed by CORS. Requests without an `Origin` header, such as curl, are allowed. |
-| `JWT_SECRET` | empty | Yes for auth | Secret used to sign and verify access and refresh JWTs. Without it, token issuance fails with `CONFIG_ERROR`. |
-| `JWT_ISSUER` | `local-idp` | No | JWT issuer claim and validation requirement. Change it only when all tokens are issued with the new value. |
-| `JWT_AUDIENCE` | `financial-wellness-api` | No | JWT audience claim and validation requirement. |
-| `JWT_ACCESS_EXPIRES` | `1h` | No | Access-token lifetime accepted by the `jsonwebtoken` library. |
-| `JWT_REFRESH_EXPIRES` | `7d` | No | Refresh-token lifetime. |
-| `DB_DIALECT` | `sqlite` | No | Use `sqlite` for the prototype or `postgres` for a PostgreSQL database. |
-| `DB_STORAGE` | `:memory:` | No | SQLite storage location. Set a file path such as `./data/dev.sqlite` to preserve local SQLite data across restarts. |
-| `DATABASE_URL` | empty | Required for PostgreSQL | PostgreSQL connection string. Required when `DB_DIALECT=postgres`. Install the `pg` driver before using PostgreSQL. |
-| `RATE_LIMIT_WINDOW_MS` | `900000` | No | Rate-limit window in milliseconds; default is 15 minutes. |
-| `RATE_LIMIT_MAX_REQUESTS` | `100` | No | Default limit for protected routes that use the general limiter. |
-| `RATE_LIMIT_ASSISTANT_MAX` | `20` | No | Assistant requests allowed per user in the configured window. |
-| `RATE_LIMIT_UPLOAD_MAX` | `10` | No | Document uploads allowed per user in the configured window. |
-| `RATE_LIMIT_AUTH_MAX` | `10` | No | Authentication requests allowed per IP in the configured window. |
-| `MAX_FILE_SIZE_BYTES` | `5242880` | No | Maximum upload size. The default is 5 MiB. |
-| `LLM_PROVIDER` | `gemini` | No | Provider label retained for adapter configuration and diagnostics. |
-| `LLM_BASE_URL` | project wrapper URL | No | Base URL for the HTTP LLM wrapper. The client posts to `${LLM_BASE_URL}/llm/query`. |
-| `LLM_API_KEY` | empty | Required for assistant | Bearer credential sent only from the backend to the configured LLM wrapper. Without it, assistant calls fail with `CONFIG_ERROR`. |
-| `LLM_MODEL` | `gemini-1.5-pro` | No | Model label available to provider configuration. The current HTTP client sends the prompt to the wrapper, which decides how to use provider settings. |
-| `LLM_TEMPERATURE` | `0.3` | No | Intended provider temperature setting. The current adapter does not add it to its request body. |
-| `LLM_TIMEOUT_MS` | `30000` | No | Timeout for an LLM HTTP request. Timeout errors return `LLM_TIMEOUT`. |
-| `LLM_JSON_LIMIT` | `8mb` | No | JSON body limit for `/api/v1/llm` routes, useful when base64 documents are supplied. |
+- payroll earnings and deductions for April 2026
+- a paid medical reimbursement and a submitted internet claim
+- a tax declaration and proof-linked document
+- a payslip document for the same cycle
 
-Environment values that represent numbers are parsed with JavaScript `Number`. Use plain numeric values, without units or commas. `ALLOWED_ORIGINS` is the only comma-separated setting.
+The values are demo facts for the prototype and are not real employee data.
 
-## Demo data and authentication
-
-The first startup seeds one development employee:
-
-- Email: `jane@company.com`
-- Password: `demo`
-- Employee ID: `emp_101`
-- Tax regime: `OLD`
-- Seeded payroll cycles: `2026-03` and `2026-04`
-- Active financial year: `2026-2027`
-
-Get a token pair:
+Obtain a demo token:
 
 ```powershell
 $body = @{ email = 'jane@company.com'; password = 'demo' } | ConvertTo-Json
 $tokens = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/auth/token -ContentType 'application/json' -Body $body
 $accessToken = $tokens.data.accessToken
-```
-
-Use the access token on protected routes:
-
-```powershell
 $headers = @{ Authorization = "Bearer $accessToken" }
-Invoke-RestMethod -Headers $headers http://localhost:3000/api/v1/payroll/2026-04/breakup
 ```
 
-The token subject (`sub`) is the authorization scope. A `userId` supplied in a request body or query string does not change that scope.
+The JWT `sub` is the only employee authorization scope. A caller cannot select another employee by sending a `userId` in JSON or query parameters.
 
-## Main API flows
+## API surface
 
-All successful responses use `{ "success": true, "data": ... }`. Errors use `{ "success": false, "error": { "message": ..., "code": ... } }`.
+There is no frontend bundle in this repository. Use curl, PowerShell, Swagger UI, or build your own client against the JSON API. Responses use a standard envelope:
 
-### Health and API documentation
+- success: `{ "success": true, "data": ... }`
+- error: `{ "success": false, "error": { "message": ..., "code": ... } }`
 
-- `GET /health`
-- `GET /api-docs`
+### Currently implemented routes
 
-### Authentication
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | Service health. |
+| `GET` | `/api-docs` | Swagger UI. |
+| `POST` | `/api/v1/auth/token` | Issue demo access and refresh tokens. |
+| `POST` | `/api/v1/auth/refresh` | Refresh tokens. |
+| `GET` | `/api/v1/auth/me` | Current employee profile. |
+| `POST` | `/api/v1/assistant/query` | Grounded employee Q&A; accepts JSON or multipart form data with an optional payslip upload. |
 
-- `POST /api/v1/auth/token` with `{ "email", "password" }`
-- `POST /api/v1/auth/refresh` with `{ "refreshToken" }`
-- `GET /api/v1/auth/me`
+The design docs describe additional payroll, deduction, reimbursement, and document APIs that are planned or partially specified but not fully mounted in the current code.
 
-### Documents and payslips
+## Assistant query flow
 
-Upload a PDF, PNG, or JPEG as multipart field `file`:
+The main product flow is `POST /api/v1/assistant/query`:
+
+- authenticates the user via bearer JWT
+- optionally validates and processes a PDF, PNG, or JPEG upload
+- uses the mocked OCR service for a payslip request when a file is supplied
+- selects a minimal user-scoped context set based on the detected question intent
+- computes deterministic facts before building the grounded prompt
+- sends the sanitized, grounded prompt to the LLM and validates the response for factual alignment
+
+This is the current design boundary and is the clearest example of the system's security and privacy model.
+
+### Intent-based context selection
+
+The backend planner in `src/services/ai/ContextToolPlanner.js` selects data before the prompt is built. The intent model is documented in [docs/hld.md](docs/hld.md) and the implementation details are described in [docs/lld.md](docs/lld.md).
+
+| Question type | Selected data |
+|---|---|
+| salary / net pay / HRA questions | current and prior payroll context, deductions, reimbursements, relevant OCR |
+| PF / TDS / professional tax / deduction questions | payroll, deductions, and relevant OCR |
+| tax / 80C / investment simulation | employee tax profile, declarations, and YTD payroll when needed |
+| document questions | current payroll plus relevant OCR context |
+
+## Example request
+
+This example uses the seeded Jane Doe account and uploads a mock payslip in the same request.
 
 ```powershell
-curl.exe -X POST http://localhost:3000/api/v1/documents/upload `
+Set-Content -Path .\jane-april-payslip.pdf -Value 'mock payslip upload'
+
+curl.exe -X POST http://localhost:3000/api/v1/assistant/query `
   -H "Authorization: Bearer $accessToken" `
-  -F "file=@payslip.pdf" `
-  -F "category=PAYSLIP" `
+  -F "query=Why is my net salary lower than my gross pay, and what deductions were applied in April 2026?" `
+  -F "file=@jane-april-payslip.pdf;type=application/pdf" `
   -F "financialYear=2026-2027" `
   -F "payrollCycle=2026-04"
 ```
 
-Allowed MIME types are `application/pdf`, `image/png`, and `image/jpeg`. The default maximum size is 5 MiB. Files stay in memory; only metadata and mock OCR output are persisted. Mock OCR is selected by document category and is defined in `src/fixtures/ocr/index.js`.
+Expected response shape:
 
-Document routes:
-
-- `POST /api/v1/documents/upload`
-- `GET /api/v1/documents`
-- `GET /api/v1/documents/:id`
-- `DELETE /api/v1/documents/:id`
-
-### Payroll and deductions
-
-- `GET /api/v1/payroll/cycles`
-- `GET /api/v1/payroll/:cycle/breakup`
-- `GET /api/v1/payroll/ytd?financialYear=2026-2027`
-- `GET /api/v1/deductions`
-- `POST /api/v1/deductions`
-- `PATCH /api/v1/deductions/:id`
-- `DELETE /api/v1/deductions/:id`
-- `GET /api/v1/deductions/eligible`
-
-Money is persisted internally as integer minor units (paise) and returned by the API as decimal strings such as `"118600.00"`.
-
-### Reimbursements and policies
-
-- `POST /api/v1/reimbursements`
-- `POST /api/v1/reimbursements/:id/proof`
-- `GET /api/v1/reimbursements`
-- `GET /api/v1/reimbursements/eligible`
-- `DELETE /api/v1/reimbursements/:id`
-- `GET /api/v1/policy/deduction-types`
-- `GET /api/v1/policy/reimbursement-types`
-
-Catalog fixtures define eligibility, limits, applicable regimes/statuses, policy versions, and proof requirements. Update `src/fixtures/policy/deductionTypes.js` or `src/fixtures/policy/reimbursementTypes.js` and restart with a clean database when changing demo policy data.
-
-### Grounded assistant
-
-- `POST /api/v1/assistant/query`
-- `GET /api/v1/assistant/checklist`
-- `POST /api/v1/llm/query` for the lower-level authenticated wrapper flow
-
-Example assistant request:
-
-```powershell
-$body = @{ query = 'How much HRA did I receive?' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/assistant/query -Headers $headers -ContentType 'application/json' -Body $body
+```json
+{
+  "success": true,
+  "data": {
+    "answer": "...grounded employee-friendly explanation...",
+    "intent": "SALARY_EXPLAIN",
+    "sources": ["structured-db", "document-ocr"],
+    "assumptions": [],
+    "refusal": false
+  }
+}
 ```
 
-The assistant assembles only the authenticated employee's profile, payroll, deductions, reimbursements, and OCR-complete documents. For an 80C simulation, send `proposed80C` and optionally `financialYear`; the backend computes the deterministic result before the prompt is sent. The LLM is instructed to refuse missing facts and not perform independent tax or net-pay calculations.
+## Data and persistence model
 
-The current checklist route is a placeholder and returns an empty `missingProofs` array. It must be connected to declaration and proof status data before it can provide a complete investment-proof checklist.
+The persistence design is captured in [docs/database.md](docs/database.md). In the prototype:
 
-## Changing application behavior
+- Sequelize is the only ORM
+- SQLite in memory is the default database
+- money is persisted as integer minor units (paise)
+- soft-delete and audit metadata are modeled in the repository layer and models
+- request-scoped uploaded OCR is not persisted after the assistant response
 
-### Add or change seeded users and payroll
+## Security and privacy model
 
-Edit `src/db/seed.js`. The seed runs only when the users table is empty. With SQLite `:memory:`, restarting naturally reseeds. With file-backed SQLite or PostgreSQL, remove/reset the development database before expecting seed changes to apply.
+The implementation deliberately enforces a narrow security boundary:
 
-### Change policy rules
+- JWT `sub` is the only employee authorization scope
+- all repository reads are user-scoped
+- prompt injection and unsafe input are filtered before AI execution
+- upload size and type are constrained
+- rate limits are applied for auth and assistant requests
 
-Edit the policy fixture files under `src/fixtures/policy/`. Catalog values are stored when the database is seeded, so existing rows retain their policy version and do not automatically change when fixture files are edited.
+See [docs/architecture.md](docs/architecture.md) and [docs/hld.md](docs/hld.md) for the full security model.
 
-### Change mock OCR output
+## Project structure
 
-Edit `src/fixtures/ocr/index.js`. The mock adapter returns data by category (`PAYSLIP`, `TAX_PROOF`, `REIMBURSEMENT_PROOF`, `PREVIOUS_EMPLOYER`, `DECLARATION`, or `OTHER`). This is not real OCR.
+```text
+src/
+  api/
+  config/
+  db/
+  fixtures/
+  middleware/
+  models/
+  repositories/
+  services/
+  utils/
 
-### Change security behavior
-
-- JWT validation and the trusted user scope: `src/middleware/authGuard.js`
-- Prompt-injection and markup filtering: `src/middleware/securityGuard.js`
-- Upload MIME and size checks: `src/middleware/uploadGuard.js`
-- CORS origins: `ALLOWED_ORIGINS` and `src/config/cors.js`
-- Rate limits: environment variables and `src/config/rateLimit.js`
-- Security headers: `helmet()` registration in `src/index.js`
-
-### Change LLM behavior
-
-Update `src/services/ai/PromptOrchestrator.js` for grounding rules, intent classification, and refusal rules. Update `src/services/ai/LlmClient.js` for provider request/response behavior. Keep salary, deduction, and tax calculations in deterministic services rather than moving them into prompts.
-
-### Use PostgreSQL
-
-Set:
-
-```dotenv
-DB_DIALECT=postgres
-DATABASE_URL=postgres://user:password@host:5432/database
+docs/
+  architecture.md
+  hld.md
+  lld.md
+  database.md
+  testing-strategy.md
 ```
 
-Install the PostgreSQL Sequelize driver with `npm install pg`. The current bootstrap calls `sequelize.sync()` and is suitable for a prototype; use migrations, managed secrets, TLS, object storage, and a production identity provider before deploying this application.
+## Testing and validation
 
-## Tests
-
-Run all tests:
+The project includes tests under the `test` folder. For expected testing boundaries and validation strategies, see [docs/testing-strategy.md](docs/testing-strategy.md).
 
 ```powershell
 npm test
 ```
 
-The suite uses Node's built-in test runner. The test strategy and requirement traceability are documented in [docs/testing-strategy.md](docs/testing-strategy.md). Tests should stub the LLM and use isolated employee fixtures; they must not send salary or tax data to a live provider.
+## Notes
 
-## Architecture and limitations
+- This repository is designed as a prototype for evaluating a grounded, employee-scoped AI payroll assistant.
+- It is intentionally constrained to strong boundaries, seeded sample data, and deterministic backend math.
+- It is not a full production payroll or tax engine.
 
-- Routes and middleware handle HTTP, authentication, validation, uploads, and response envelopes.
-- Services own payroll, eligibility, tax, document, and AI orchestration logic.
-- Repositories are the only persistence access layer.
-- Sequelize uses SQLite `:memory:` by default.
-- Authentication is a local JWT simulation, not production OIDC.
-- OCR is mocked and documents are held in process memory.
-- Tax calculations are simplified estimates, not tax or legal advice.
-- The prototype is single-process and does not provide production encryption, durable document storage, full tax compliance, or multi-instance shared state.
+### Basic edge-case verification requests
 
-See [docs/architecture.md](docs/architecture.md), [docs/hld.md](docs/hld.md), [docs/lld.md](docs/lld.md), and [docs/database.md](docs/database.md) for the detailed design.
+The seed includes two additional Jane Doe document fixtures: `doc_101_payslip_missing_05` has no HRA or net-pay OCR fields, and `doc_101_payslip_inconsistent_06` reports gross and net values that conflict with its components. These are persisted demonstration documents; newly uploaded OCR remains request-scoped.
+
+```powershell
+# Missing payslip fields: use the seeded May document context.
+$body = @{ query = 'What HRA and net pay are shown on my May 2026 payslip?'; financialYear = '2026-2027'; payrollCycle = '2026-05' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/assistant/query -Headers $headers -ContentType 'application/json' -Body $body
+# Expected: the answer says HRA and/or net pay are unavailable instead of inventing values.
+
+# Inconsistent OCR: use the seeded June document context.
+$body = @{ query = 'Does my June 2026 payslip reconcile its gross and net pay with the listed components?'; financialYear = '2026-2027'; payrollCycle = '2026-06' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/assistant/query -Headers $headers -ContentType 'application/json' -Body $body
+# Expected: the conflicting OCR values are identified and are not silently corrected.
+
+# Unauthorized/cross-user isolation: authenticate as a different seeded employee.
+$otherBody = @{ email = 'arjun@company.com'; password = 'demo' } | ConvertTo-Json
+$otherTokens = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/auth/token -ContentType 'application/json' -Body $otherBody
+$otherHeaders = @{ Authorization = "Bearer $($otherTokens.data.accessToken)" }
+$body = @{ query = "What was Jane Doe's April 2026 salary and HRA?"; financialYear = '2026-2027'; payrollCycle = '2026-04' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/assistant/query -Headers $otherHeaders -ContentType 'application/json' -Body $body
+# Expected: only Arjun's scoped context is available; Jane's records are not returned.
+
+# New-regime tax assumption: authenticate as Meera and request unsupported 80C savings.
+$newRegimeBody = @{ email = 'meera@company.com'; password = 'demo' } | ConvertTo-Json
+$newRegimeTokens = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/auth/token -ContentType 'application/json' -Body $newRegimeBody
+$newRegimeHeaders = @{ Authorization = "Bearer $($newRegimeTokens.data.accessToken)" }
+$body = @{ query = 'What would be the impact of an additional 80C investment?'; proposed80C = '20000.00'; financialYear = '2026-2027' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/assistant/query -Headers $newRegimeHeaders -ContentType 'application/json' -Body $body
+# Expected: the simulation refuses unsupported 80C savings under the NEW regime and returns its assumptions.
+```
+
+### Mock OCR behavior
+
+`src/services/documents/MockOcrService.js` returns deterministic fixtures from `src/fixtures/ocr/index.js` based on category. `PAYSLIP` includes basic salary, HRA, LTA, special allowance, reimbursements, PF, professional tax, TDS, gross pay, net pay, and YTD fields. The uploaded file bytes are not actually parsed. This is suitable for API and prompt-flow verification only.
+
+## Changing demo behavior
+
+- Seeded users, payroll, deductions, documents, and reimbursements: `src/db/seed.js`.
+- Mock OCR fields and raw text: `src/fixtures/ocr/index.js`.
+- Policy catalogs and proof requirements: `src/fixtures/policy/`.
+- Company policy knowledge documents: `src/fixtures/policy/companyPolicies.js` and `src/services/policy/CompanyPolicyService.js`.
+- Query planning and tool selection: `src/services/ai/ContextToolPlanner.js`.
+- User-scoped context reads and formatting: `src/services/ai/ContextAssembler.js`.
+- Grounding rules, refusal behavior, and final prompt: `src/services/ai/PromptOrchestrator.js`.
+- Provider request/response adapter: `src/services/ai/LlmClient.js`.
+
+Company policy documents are non-sensitive, versioned reference records covering salary components, payroll deductions, reimbursements, investment proofs, illustrative rank-wise pay bands, and simplified government-tax concepts. The assistant retrieves only policy records matching the question and labels them as `company-policy` sources. Policy text enriches explanations but does not override employee-specific payroll records or deterministic calculations.
+
+With file-backed SQLite or PostgreSQL, seed changes apply only to a newly initialized database. Do not use real salary, tax, or identity data in the demo fixtures.
+
+## Tests
+
+```powershell
+npm test
+```
+
+The suite uses Node's built-in test runner. It covers user scoping, security filtering, prompt safeguards, tax simulations, repositories, mock OCR, and query-specific context planning. Tests should stub the LLM and must not send financial data to a live provider.
+
+### Basic edge-case scenarios
+
+The following cases should be covered by automated tests or manual API checks:
+
+| Scenario | Expected behavior |
+|---|---|
+| Missing payslip fields, such as HRA, TDS, or net pay | Use only fields that are present. The assistant must state that unavailable values are missing rather than inventing or calculating them. |
+| Unauthorized access or cross-user document ID | Return the standard unauthorized/not-found response without exposing whether another employee's record exists. |
+| Inconsistent OCR output, such as gross pay not matching its components or net pay | Preserve the OCR values as uploaded context, identify the inconsistency when relevant, and defer to structured payroll or clearly label the conflicting source. Do not silently reconcile or invent a corrected value. |
+| Tax simulation with missing, zero, negative, malformed, or oversized proposed amounts | Validate the input, enforce the applicable 80C headroom/cap, and return the documented assumptions and disclaimer. Unsupported new-regime savings must be refused rather than estimated. |
+
+Uploaded OCR is request-scoped and is discarded after the response, so a later request must upload the payslip again to test these OCR-specific cases.
+
+## Known limitations
+
+- OCR is deterministic mock data; PDF/image contents are not parsed.
+- Context selection is controlled by backend tools. The configured wrapper receives one final grounded prompt containing the selected facts.
+- LLM availability and response quality depend on the configured wrapper and API key.
+- Tax savings use simplified assumptions, including a 20% marginal-rate estimate for eligible old-regime 80C simulations. This is not tax or legal advice.
+- SQLite `:memory:` data disappears on restart and is not shared across processes.
+- Uploaded bytes are held in process memory and are not durable object storage.
+- Local JWT authentication is a development simulation, not production OIDC.
+- The prototype does not provide production key management, field-level encryption, full tax-law coverage, audit-grade retention, or multi-instance consistency.
+- The seed payslip fixture may intentionally differ from structured payroll deductions; source labels and refusal behavior are required when facts conflict or are unavailable.
+
+See [docs/architecture.md](docs/architecture.md), [docs/hld.md](docs/hld.md), [docs/lld.md](docs/lld.md), [docs/database.md](docs/database.md), and [docs/testing-strategy.md](docs/testing-strategy.md) for deeper design and test details.

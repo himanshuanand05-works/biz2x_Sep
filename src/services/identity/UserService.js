@@ -1,16 +1,11 @@
-/**
- * Employee identity and eligibility context. JWTs are never stored on this entity.
- */
-export class User {
+/** Employee identity and eligibility context. JWTs are never stored here. */
+export class UserService {
   constructor(fields) {
     Object.assign(this, fields);
     this.employmentStartDate = fields.employmentStartDate ?? fields.dateOfJoining;
   }
 
-  /**
-   * Derived tenure in complete months; used by eligibility rules.
-   * @param {Date} [asOfDate]
-   */
+  /** Derived tenure in complete months; used by eligibility rules. */
   getTenureMonths(asOfDate = new Date()) {
     const start = this.dateOfJoining ? new Date(this.dateOfJoining) : null;
     if (!start || Number.isNaN(start.getTime())) {

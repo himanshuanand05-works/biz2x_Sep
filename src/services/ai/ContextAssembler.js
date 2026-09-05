@@ -1,40 +1,96 @@
-import { User } from '../../domain/User.js';
+import { UserService } from '../identity/UserService.js';
 import { userRepository } from '../../repositories/UserRepository.js';
 import { payrollRepository } from '../../repositories/PayrollRepository.js';
 import { deductionRepository } from '../../repositories/DeductionRepository.js';
 import { reimbursementRepository } from '../../repositories/ReimbursementRepository.js';
 import { userDocumentRepository } from '../../repositories/UserDocumentRepository.js';
+import { deductionTypeCatalogRepository } from '../../repositories/DeductionTypeCatalogRepository.js';
+import { companyPolicyService } from '../policy/CompanyPolicyService.js';
 import { fromMinorUnits } from '../../utils/money.js';
 import { NotFoundError } from '../../utils/errors.js';
 
 /** Builds a read-only, employee-scoped context for the grounded prompt. */
 export class ContextAssembler {
-  async assemble(userId, { payrollCycle, financialYear } = {}) {
+  async assemble(userId, { payrollCycle, financialYear, documentId, uploadedDocument, policyQuery = '', tools = ['profile', 'payroll', 'deductions', 'reimbursements', 'documents'] } = {}) {
     const userRow = await userRepository.findById(userId);
     if (!userRow) throw new NotFoundError('User not found');
-    const user = new User(userRow);
+    const user = new UserService(userRow);
     const fy = financialYear ?? user.activeFinancialYear;
-    const payroll = payrollCycle
-      ? await payrollRepository.findByUserAndCycle(userId, payrollCycle)
-      : await payrollRepository.findLatestCycle(userId);
-    const deductions = await deductionRepository.findByUserAndFY(userId, fy);
-    const reimbursements = await reimbursementRepository.find(userId, { financialYear: fy });
-    const documents = await userDocumentRepository.find(userId, { status: 'OCR_COMPLETE' });
+    const requestedTools = new Set(tools);
+    const needsPayroll = requestedTools.has('payroll') || requestedTools.has('payrollComparison') || requestedTools.has('ytd');
+    const payroll = needsPayroll
+      ? (payrollCycle
+        ? await payrollRepository.findByUserAndCycle(userId, payrollCycle)
+        : await payrollRepository.findLatestCycle(userId))
+      : null;
+    const payrollComparison = requestedTools.has('payrollComparison')
+      ? await this.getPayrollComparison(userId, fy, payrollCycle)
+      : [];
+    const deductions = requestedTools.has('deductions')
+      ? await deductionRepository.findByUserAndFY(userId, fy)
+      : [];
+    const reimbursements = requestedTools.has('reimbursements')
+      ? await reimbursementRepository.find(userId, { financialYear: fy })
+      : [];
+    const persistedDocuments = requestedTools.has('documents')
+      ? await this.getDocuments(userId, { payrollCycle, documentId })
+      : [];
+    const documents = [...persistedDocuments, ...(uploadedDocument ? [uploadedDocument] : [])];
+    const ytd = requestedTools.has('ytd')
+      ? await payrollRepository.findByUserAndFy(userId, fy)
+      : [];
+    const policies = requestedTools.has('policy')
+      ? companyPolicyService.search(policyQuery).map(({ policyId, title, category, effectiveFrom, version, source, content }) => ({
+        policyId, title, category, effectiveFrom, version, source, content
+      }))
+      : [];
 
     return {
       employeeId: user.userId,
-      userProfile: user.getEligibilityContext(),
+      financialYear: fy,
+      userProfile: requestedTools.has('profile') || requestedTools.has('taxSimulation') ? user.getEligibilityContext() : null,
       payroll: payroll ? this.formatPayroll(payroll) : null,
-      deductions: deductions.map((row) => this.formatMoneyRow(row)),
+      payrollComparison: payrollComparison.map((row) => this.formatPayroll(row)),
+      deductions: await Promise.all(deductions.map(async (row) => {
+        const catalog = await deductionTypeCatalogRepository.findByCode(row.typeCode);
+        return {
+          ...this.formatMoneyRow(row),
+          displayName: catalog?.displayName ?? row.typeCode,
+          description: catalog?.description ?? null,
+          requiresProof: catalog?.requiresProof ?? false,
+          proofDocumentCategory: catalog?.proofDocumentCategory ?? null
+        };
+      })),
       reimbursements: reimbursements.map((row) => this.formatMoneyRow(row)),
+      ytd: ytd.map((row) => this.formatPayroll(row)),
+      companyPolicies: policies,
       documents: documents.map((document) => ({
         documentId: document.documentId,
         category: document.category,
         financialYear: document.financialYear,
         payrollCycle: document.payrollCycle,
+        fields: document.mockOcrPayload?.fields ?? document.mockOcrPayload?.extractedData ?? {},
         ocrText: document.mockOcrPayload?.rawText ?? document.mockOcrPayload?.text ?? null
       }))
     };
+  }
+
+  async getPayrollComparison(userId, financialYear, payrollCycle) {
+    const rows = await payrollRepository.findByUserAndFy(userId, financialYear);
+    const ordered = rows.sort((left, right) => left.payrollCycle.localeCompare(right.payrollCycle));
+    if (!payrollCycle) return ordered.slice(-2);
+    const currentIndex = ordered.findIndex((row) => row.payrollCycle === payrollCycle);
+    return currentIndex < 0 ? ordered.slice(-2) : ordered.slice(Math.max(0, currentIndex - 1), currentIndex + 1);
+  }
+
+  async getDocuments(userId, { payrollCycle, documentId } = {}) {
+    if (documentId) {
+      const document = await userDocumentRepository.findByUserAndId(userId, documentId);
+      return document?.status === 'OCR_COMPLETE' ? [document] : [];
+    }
+    const where = { status: 'OCR_COMPLETE' };
+    if (payrollCycle) where.payrollCycle = payrollCycle;
+    return userDocumentRepository.find(userId, where);
   }
 
   formatPayroll(payroll) {

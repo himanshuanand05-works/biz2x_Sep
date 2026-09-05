@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { User } from '../src/domain/User.js';
+import { UserService } from '../src/services/identity/UserService.js';
 import { PromptOrchestrator } from '../src/services/ai/PromptOrchestrator.js';
 import { TaxCalculatorService } from '../src/services/tax/TaxCalculatorService.js';
 import { deductionService } from '../src/services/deductions/DeductionService.js';
@@ -9,8 +9,9 @@ import { securityGuard } from '../src/middleware/securityGuard.js';
 import { LlmClient } from '../src/services/ai/LlmClient.js';
 import { contextAssembler } from '../src/services/ai/ContextAssembler.js';
 import { llmClient } from '../src/services/ai/LlmClient.js';
+import { ContextToolPlanner } from '../src/services/ai/ContextToolPlanner.js';
 
-const employee = new User({
+const employee = new UserService({
   userId: 'emp_test',
   dateOfJoining: '2022-06-01',
   employmentStatus: 'ACTIVE',
@@ -57,6 +58,31 @@ test('prompt builder includes scoped facts and explicit missing-data refusal', (
   assert.match(prompt, /Do not perform independent tax or net-pay calculations/);
 });
 
+test('context tool planner selects only relevant sources', () => {
+  const planner = new ContextToolPlanner();
+  assert.deepEqual(planner.plan('How much HRA did I receive?', { documentId: 'doc_1' }), {
+    intent: 'SALARY_EXPLAIN',
+    intents: ['SALARY_EXPLAIN'],
+    tools: ['profile', 'payrollComparison', 'deductions', 'reimbursements', 'documents', 'policy'],
+    documentId: 'doc_1',
+    policyQuery: 'How much HRA did I receive?'
+  });
+  assert.deepEqual(planner.plan('How much TDS did I pay this year?'), {
+    intent: 'DEDUCTION_BREAKDOWN',
+    intents: ['DEDUCTION_BREAKDOWN', 'SALARY_EXPLAIN'],
+    tools: ['profile', 'payroll', 'deductions', 'documents', 'policy', 'payrollComparison', 'reimbursements'],
+    documentId: undefined,
+    policyQuery: 'How much TDS did I pay this year?'
+  });
+  assert.deepEqual(planner.plan('What investment proofs am I missing?'), {
+    intent: 'PROOF_CHECKLIST',
+    intents: ['PROOF_CHECKLIST', 'TAX_SIMULATION'],
+    tools: ['profile', 'deductions', 'policy', 'taxSimulation', 'ytd'],
+    documentId: undefined,
+    policyQuery: 'What investment proofs am I missing?'
+  });
+});
+
 test('unsupported salary question is refused before context assembly and LLM call', async () => {
   const orchestrator = new PromptOrchestrator();
   const originalAssemble = contextAssembler.assemble;
@@ -97,7 +123,7 @@ test('old-regime 80C simulation is capped and calculates simplified savings', as
 
 test('new-regime 80C simulation reports refusal and zero estimated savings', async () => {
   const service = new TaxCalculatorService();
-  const newRegimeEmployee = new User({ ...employee, taxRegime: 'NEW' });
+  const newRegimeEmployee = new UserService({ ...employee, taxRegime: 'NEW' });
   const originalAggregate = deductionService.getAggregateUsedMinor;
   const originalCatalog = deductionTypeCatalogRepository.findByAggregateGroup;
   deductionService.getAggregateUsedMinor = async () => 0;
