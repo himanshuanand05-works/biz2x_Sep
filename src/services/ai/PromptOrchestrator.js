@@ -3,6 +3,7 @@ import { contextAssembler } from './ContextAssembler.js';
 import { taxCalculatorService } from '../tax/TaxCalculatorService.js';
 import { llmClient } from './LlmClient.js';
 import { contextToolPlanner } from './ContextToolPlanner.js';
+import { logger } from '../../config/logger.js';
 
 const refusalRules = [
   { pattern: /manager.{0,40}salary|salary.{0,40}manager/i, reason: 'I cannot provide another person\'s private salary information.' },
@@ -13,7 +14,9 @@ const refusalRules = [
 export class PromptOrchestrator {
   async answer(userId, userQuery, options = {}) {
     const refusal = this.getRefusal(userQuery);
-    if (refusal) return { answer: refusal.reason, intent: 'REFUSAL', sources: [], assumptions: [], refusal: true };
+    if (refusal) {
+      return { answer: refusal.reason, intent: 'REFUSAL', sources: [], assumptions: [], refusal: true };
+    }
 
     const plan = contextToolPlanner.plan(userQuery, options);
     const context = await contextAssembler.assemble(userId, {
@@ -22,6 +25,7 @@ export class PromptOrchestrator {
       documentId: plan.documentId,
       policyQuery: plan.policyQuery
     });
+
     let taxData = null;
     if (plan.intents.includes(QueryIntent.TAX_SIMULATION) && options.proposed80C != null) {
       taxData = await taxCalculatorService.calculate80CSavings(
@@ -32,6 +36,12 @@ export class PromptOrchestrator {
     }
     const checklist = plan.intents.includes(QueryIntent.PROOF_CHECKLIST) ? this.getChecklist(context) : null;
     const prompt = this.buildGroundedPrompt(userQuery, context, taxData);
+    logger.info('LLM request audited', {
+      userId,
+      action: 'llm_request',
+      query: userQuery,
+      prompt
+    });
     const result = await llmClient.query({
       prompt,
       pdfBase64: options.pdfBase64,

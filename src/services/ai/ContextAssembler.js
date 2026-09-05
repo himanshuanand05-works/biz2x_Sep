@@ -8,6 +8,7 @@ import { deductionTypeCatalogRepository } from '../../repositories/DeductionType
 import { companyPolicyService } from '../policy/CompanyPolicyService.js';
 import { fromMinorUnits } from '../../utils/money.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { logger } from '../../config/logger.js';
 
 /** Builds a read-only, employee-scoped context for the grounded prompt. */
 export class ContextAssembler {
@@ -44,6 +45,57 @@ export class ContextAssembler {
         policyId, title, category, effectiveFrom, version, source, content
       }))
       : [];
+
+    if (documents.length) {
+      logger.info('User action audited: payslip_access', {
+        userId,
+        action: 'payslip_access',
+        intent: 'DOCUMENT_GROUNDED',
+        query: null,
+        details: {
+          documentIds: documents.map((document) => document.documentId).filter(Boolean),
+          categories: documents.map((document) => document.category)
+        }
+      });
+    }
+    if (deductions.length) {
+      logger.info('User action audited: deduction_access', {
+        userId,
+        action: 'deduction_access',
+        intent: 'DEDUCTION_BREAKDOWN',
+        query: null,
+        details: {
+          typeCodes: deductions.map((deduction) => deduction.typeCode),
+          financialYear: fy
+        }
+      });
+    }
+    if (reimbursements.length) {
+      logger.info('User action audited: reimbursement_access', {
+        userId,
+        action: 'reimbursement_access',
+        intent: 'REIMBURSEMENT_BREAKDOWN',
+        query: null,
+        details: {
+          typeCodes: reimbursements.map((claim) => claim.typeCode),
+          financialYear: fy
+        }
+      });
+    }
+    if (payroll || payrollComparison.length || ytd.length) {
+      logger.info('User action audited: payroll_access', {
+        userId,
+        action: 'payroll_access',
+        intent: 'SALARY_EXPLAIN',
+        query: null,
+        details: {
+          hasPayroll: Boolean(payroll),
+          comparisonCycles: payrollComparison.map((row) => row.payrollCycle),
+          ytdCycleCount: ytd.length,
+          financialYear: fy
+        }
+      });
+    }
 
     return {
       employeeId: user.userId,

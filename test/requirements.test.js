@@ -10,6 +10,11 @@ import { LlmClient } from '../src/services/ai/LlmClient.js';
 import { contextAssembler } from '../src/services/ai/ContextAssembler.js';
 import { llmClient } from '../src/services/ai/LlmClient.js';
 import { ContextToolPlanner } from '../src/services/ai/ContextToolPlanner.js';
+import { logger } from '../src/config/logger.js';
+import { queryAssistant } from '../src/api/controllers/assistantController.js';
+import { userDocumentService } from '../src/services/documents/UserDocumentService.js';
+import { initDatabase } from '../src/models/index.js';
+import { seedDatabase } from '../src/db/seed.js';
 
 const employee = new UserService({
   userId: 'emp_test',
@@ -136,5 +141,52 @@ test('new-regime 80C simulation reports refusal and zero estimated savings', asy
   } finally {
     restore(deductionService, 'getAggregateUsedMinor', originalAggregate);
     restore(deductionTypeCatalogRepository, 'findByAggregateGroup', originalCatalog);
+  }
+});
+
+test('controller and assembler log actual upload and data-access actions for the employee', async () => {
+  await initDatabase();
+  await seedDatabase();
+  const originalQuery = llmClient.query;
+  const originalLoggerInfo = logger.info;
+  const actions = [];
+
+  logger.info = (message, meta) => {
+    actions.push({ message, meta });
+  };
+
+  llmClient.query = async () => ({ text: 'ok' });
+
+  try {
+    const req = {
+      user: { userId: 'emp_101' },
+      body: {
+        query: 'How much did my salary change and what documents were used?',
+        financialYear: '2026-2027',
+        payrollCycle: '2026-04'
+      },
+      file: { originalname: 'payslip.pdf' },
+      context: { activeFinancialYear: '2026-2027', latestPayrollCycle: '2026-04' }
+    };
+    const res = {
+      status: () => ({ json: () => ({}) })
+    };
+
+    await queryAssistant(req, res);
+
+    const actionNames = actions.map((entry) => entry.meta.action);
+    assert.ok(actionNames.includes('document_upload'));
+    assert.ok(actionNames.includes('assistant_query'));
+    assert.ok(actionNames.includes('payslip_access'));
+    assert.ok(actionNames.includes('deduction_access'));
+    assert.ok(actionNames.includes('reimbursement_access'));
+    assert.ok(actionNames.includes('payroll_access'));
+    const llmRequest = actions.find((entry) => entry.meta.action === 'llm_request');
+    assert.equal(llmRequest.meta.query, req.body.query);
+    assert.match(llmRequest.meta.prompt, /SYSTEM PROMPT:/);
+    assert.match(llmRequest.meta.prompt, new RegExp(req.body.query));
+  } finally {
+    restore(llmClient, 'query', originalQuery);
+    restore(logger, 'info', originalLoggerInfo);
   }
 });
