@@ -11,6 +11,7 @@ import { localOAuth2Service } from '../src/services/identity/LocalOAuth2Service.
 import { userDocumentService } from '../src/services/documents/UserDocumentService.js';
 import { reimbursementRepository } from '../src/repositories/ReimbursementRepository.js';
 import { queryAssistant } from '../src/api/controllers/assistantController.js';
+import { promptOrchestrator } from '../src/services/ai/PromptOrchestrator.js';
 import { initDatabase } from '../src/models/index.js';
 import { seedDatabase } from '../src/db/seed.js';
 
@@ -92,4 +93,23 @@ test('assistant refusal short-circuits before document upload', async () => {
   } finally {
     userDocumentService.uploadDocument = originalUpload;
   }
+});
+
+test('payslip only refuses when required fields are missing', () => {
+  const doc = {
+    category: 'PAYSLIP',
+    isPartial: true,
+    missingFields: ['hra'],
+    requiredMissingFields: [],
+    optionalMissingFields: ['hra']
+  };
+
+  assert.equal(promptOrchestrator.getIncompleteDocumentReason(doc), null);
+  const prompt = promptOrchestrator.buildGroundedPrompt('Explain my payslip', {
+    employeeId: 'emp_101',
+    documents: [{ ocrText: 'Gross: 150000.00', optionalMissingFields: ['hra'] }]
+  });
+
+  assert.match(prompt, /OPTIONAL PAYSLIP FIELDS MISSING/i);
+  assert.match(prompt, /hra/i);
 });

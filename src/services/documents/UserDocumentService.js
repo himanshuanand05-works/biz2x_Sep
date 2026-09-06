@@ -30,25 +30,55 @@ export class UserDocumentService {
     if (category === 'PAYSLIP' && !financialYear) {
       throw new ValidationError('Unable to determine financial year from payslip OCR', ['file']);
     }
+
     const document = {
       documentId: null,
       category,
       fileName: file.originalname,
       financialYear: financialYear ?? metadata.financialYear ?? null,
       payrollCycle,
-      mockOcrPayload: ocr
+      mockOcrPayload: ocr,
+      isPartial: false,
+      missingFields: [],
+      requiredMissingFields: [],
+      optionalMissingFields: []
     };
+
+    if (category === 'PAYSLIP') {
+      const fieldStatus = mockOcrService.getMissingFieldsForPayslip(ocr);
+      document.missingFields = fieldStatus.missingFields;
+      document.requiredMissingFields = fieldStatus.requiredMissingFields;
+      document.optionalMissingFields = fieldStatus.optionalMissingFields;
+      document.isPartial = fieldStatus.missingFields.length > 0;
+      if (document.requiredMissingFields.length > 0) {
+        logger.warn('User action audited: document_upload_incomplete', {
+          userId,
+          action: 'document_upload_incomplete',
+          intent: 'REFUSAL',
+          query: metadata.query ?? null,
+          details: {
+            category: document.category,
+            financialYear: document.financialYear,
+            payrollCycle: document.payrollCycle,
+            missingFields: document.requiredMissingFields
+          }
+        });
+      }
+    }
 
     logger.info('User action audited: document_upload', {
       userId,
       action: 'document_upload',
-      intent: 'DOCUMENT_UPLOAD',
+      intent: document.requiredMissingFields.length > 0 ? 'REFUSAL' : 'DOCUMENT_UPLOAD',
       query: metadata.query ?? null,
       details: {
         category: document.category,
         documentId: document.documentId,
         financialYear: document.financialYear,
-        payrollCycle: document.payrollCycle
+        payrollCycle: document.payrollCycle,
+        missingFields: document.missingFields,
+        requiredMissingFields: document.requiredMissingFields,
+        optionalMissingFields: document.optionalMissingFields
       }
     });
 

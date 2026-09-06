@@ -121,7 +121,10 @@ export class ContextAssembler {
         financialYear: document.financialYear,
         payrollCycle: document.payrollCycle,
         fields: document.mockOcrPayload?.fields ?? document.mockOcrPayload?.extractedData ?? {},
-        ocrText: document.mockOcrPayload?.rawText ?? document.mockOcrPayload?.text ?? null
+        ocrText: document.mockOcrPayload?.rawText ?? document.mockOcrPayload?.text ?? null,
+        missingFields: document.missingFields ?? [],
+        requiredMissingFields: document.requiredMissingFields ?? [],
+        optionalMissingFields: document.optionalMissingFields ?? []
       }))
     };
   }
