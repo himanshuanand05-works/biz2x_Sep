@@ -50,6 +50,41 @@ Client
 
 For the full architecture rationale and threat model, see [docs/architecture.md](docs/architecture.md) and [docs/hld.md](docs/hld.md).
 
+## Assumptions
+
+The prototype operates under the following product assumptions:
+
+- OCR service can always extract data from payslip with 100% accuracy.
+- Payslip will always have the month and year for which it is generated.
+- Only 2 decimal point precision required for monetary data.
+- The list of mandatory fields in payslip are assumed.
+- Current request-scoped OCR handling includes a required-field guard for incomplete payslips, while optional missing fields are surfaced to the LLM and user as a note instead of blocking the entire flow.
+
+## Out of Scope
+
+The current implementation intentionally excludes the following:
+
+- User Document upload
+- Multiple currency support and rate conversion
+- Blob storage or S3 storage with signed URL for storing documents
+- Production OIDC integration (Auth0, Azure AD, etc.)
+- Full income-tax compliance engine (all sections, regimes, surcharges)
+- General eligibility services and LLM post-response factual validation
+- UI
+- Fallback and rollback mechanism for partial failures and service failures.
+
+## Production Release Updates
+
+The following items are explicitly deferred for a production-ready release and should be treated as follow-on work:
+
+- Entity fields whose value is coming from Enum currently do not perform validation when persisting. Add `isIn` validation for those fields.
+- Caching and reuse of request-scoped domain models.
+- Persist rate limits in RedisStore or some centralised store so that they do not reset when the instance dies.
+- Vectorize policy document data and store in a Vector DB. The data can then be loaded based on query and embedding top-k match search; BM25 search is also a viable fallback approach.
+- Agentic tool calling. The current implementation is limited to in-code intent checking and tool calling because the LLM endpoint does not currently accept tool-calling payloads.
+- Changing the DB to PostgreSQL and adding PostgreSQL migration support (schema provided for forward compatibility).
+- Database-enforced foreign keys and polymorphic document links.
+
 ## Setup
 
 ### Prerequisites
