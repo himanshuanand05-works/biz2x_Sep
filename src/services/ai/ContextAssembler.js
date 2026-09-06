@@ -1,10 +1,9 @@
 import { UserService } from '../identity/UserService.js';
-import { userRepository } from '../../repositories/UserRepository.js';
-import { payrollRepository } from '../../repositories/PayrollRepository.js';
-import { deductionRepository } from '../../repositories/DeductionRepository.js';
-import { reimbursementRepository } from '../../repositories/ReimbursementRepository.js';
-import { userDocumentRepository } from '../../repositories/UserDocumentRepository.js';
-import { deductionTypeCatalogRepository } from '../../repositories/DeductionTypeCatalogRepository.js';
+import { payrollService } from '../payroll/PayrollService.js';
+import { deductionService } from '../deductions/DeductionService.js';
+import { reimbursementService } from '../reimbursements/ReimbursementService.js';
+import { userDocumentService } from '../documents/UserDocumentService.js';
+import { catalogService } from '../policy/CatalogService.js';
 import { companyPolicyService } from '../policy/CompanyPolicyService.js';
 import { fromMinorUnits } from '../../utils/money.js';
 import { NotFoundError } from '../../utils/errors.js';
@@ -13,7 +12,7 @@ import { logger } from '../../config/logger.js';
 /** Builds a read-only, employee-scoped context for the grounded prompt. */
 export class ContextAssembler {
   async assemble(userId, { payrollCycle, financialYear, documentId, uploadedDocument, policyQuery = '', tools = ['profile', 'payroll', 'deductions', 'reimbursements', 'documents'] } = {}) {
-    const userRow = await userRepository.findById(userId);
+    const userRow = await UserService.findById(userId);
     if (!userRow) throw new NotFoundError('User not found');
     const user = new UserService(userRow);
     const fy = financialYear;
@@ -21,24 +20,24 @@ export class ContextAssembler {
     const needsPayroll = requestedTools.has('payroll') || requestedTools.has('payrollComparison') || requestedTools.has('ytd');
     const payroll = needsPayroll
       ? (payrollCycle
-        ? await payrollRepository.findByUserAndCycle(userId, payrollCycle)
-        : await payrollRepository.findLatestCycle(userId))
+        ? await payrollService.findByUserAndCycle(userId, payrollCycle)
+        : await payrollService.findLatestCycle(userId))
       : null;
     const payrollComparison = requestedTools.has('payrollComparison')
       ? await this.getPayrollComparison(userId, fy, payrollCycle)
       : [];
     const deductions = requestedTools.has('deductions')
-      ? await deductionRepository.findByUserAndFY(userId, fy)
+      ? await deductionService.findByUserAndFinancialYear(userId, fy)
       : [];
     const reimbursements = requestedTools.has('reimbursements')
-      ? await reimbursementRepository.find(userId, { financialYear: fy })
+      ? await reimbursementService.findByUser(userId, { financialYear: fy })
       : [];
     const persistedDocuments = requestedTools.has('documents')
       ? await this.getDocuments(userId, { payrollCycle, documentId })
       : [];
     const documents = [...persistedDocuments, ...(uploadedDocument ? [uploadedDocument] : [])];
     const ytd = requestedTools.has('ytd')
-      ? await payrollRepository.findByUserAndFy(userId, fy)
+      ? await payrollService.findByUserAndFinancialYear(userId, fy)
       : [];
     const policies = requestedTools.has('policy')
       ? companyPolicyService.search(policyQuery).map(({ policyId, title, category, effectiveFrom, version, source, content }) => ({
@@ -104,7 +103,7 @@ export class ContextAssembler {
       payroll: payroll ? this.formatPayroll(payroll) : null,
       payrollComparison: payrollComparison.map((row) => this.formatPayroll(row)),
       deductions: await Promise.all(deductions.map(async (row) => {
-        const catalog = await deductionTypeCatalogRepository.findByCode(row.typeCode);
+        const catalog = await catalogService.findDeductionByCode(row.typeCode);
         return {
           ...this.formatMoneyRow(row),
           displayName: catalog?.displayName ?? row.typeCode,
@@ -128,7 +127,7 @@ export class ContextAssembler {
   }
 
   async getPayrollComparison(userId, financialYear, payrollCycle) {
-    const rows = await payrollRepository.findByUserAndFy(userId, financialYear);
+    const rows = await payrollService.findByUserAndFinancialYear(userId, financialYear);
     const ordered = rows.sort((left, right) => left.payrollCycle.localeCompare(right.payrollCycle));
     if (!payrollCycle) return ordered.slice(-2);
     const currentIndex = ordered.findIndex((row) => row.payrollCycle === payrollCycle);
@@ -137,12 +136,12 @@ export class ContextAssembler {
 
   async getDocuments(userId, { payrollCycle, documentId } = {}) {
     if (documentId) {
-      const document = await userDocumentRepository.findByUserAndId(userId, documentId);
+      const document = await userDocumentService.findByUserAndId(userId, documentId);
       return document?.status === 'OCR_COMPLETE' ? [document] : [];
     }
     const where = { status: 'OCR_COMPLETE' };
     if (payrollCycle) where.payrollCycle = payrollCycle;
-    return userDocumentRepository.find(userId, where);
+    return userDocumentService.findByUser(userId, where);
   }
 
   formatPayroll(payroll) {

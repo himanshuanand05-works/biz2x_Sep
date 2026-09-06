@@ -1,5 +1,15 @@
 /** Employee identity and eligibility context. JWTs are never stored here. */
+import { userRepository } from '../../repositories/UserRepository.js';
+
 export class UserService {
+  static async findByEmail(email) {
+    return userRepository.findByEmail(email);
+  }
+
+  static async findById(userId) {
+    return userRepository.findById(userId);
+  }
+
   constructor(fields) {
     Object.assign(this, fields);
     this.employmentStartDate = fields.employmentStartDate ?? fields.dateOfJoining;

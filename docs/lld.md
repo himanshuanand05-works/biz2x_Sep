@@ -218,11 +218,8 @@ classDiagram
     }
 
     class ReimbursementService {
-      <<planned>>
-        +createClaim(userId, payload)
-        +attachProof(reimbursementId, documentId)
-        +listByUser(userId, filters)
-        +evaluateEligibility(claim) Boolean
+        +findByUser(userId, filters) Array
+        +sumByUserTypeFY(userId, typeCode, financialYear) Number
     }
 
     class LocalOAuth2Service {
@@ -292,6 +289,19 @@ classDiagram
       +load(userId) Object
     }
 
+    class PayrollService {
+      +findByUserAndCycle(userId, payrollCycle) PayrollRecord
+      +findLatestCycle(userId) PayrollRecord
+      +findByUserAndFinancialYear(userId, financialYear) Array
+    }
+
+    class CatalogService {
+      +findDeductionByCode(typeCode) DeductionTypeCatalog
+      +findDeductionTypeCodesByAggregateGroup(group) Array
+      +findDeductionAggregateGroup(group) DeductionTypeCatalog
+      +findReimbursementActive(typeCode) ReimbursementTypeCatalog
+    }
+
     class SecurityMiddleware {
       +authGuard(req, res, next)
       +userContextLoader(req, res, next)
@@ -301,6 +311,7 @@ classDiagram
     }
 
     class DeductionService {
+      +findByUserAndFinancialYear(userId, financialYear, filters) Array
       +getAggregateUsedMinor(userId, financialYear, aggregateGroup) Number
     }
 
@@ -348,11 +359,18 @@ classDiagram
     PromptOrchestrator --> LlmClient : provider request
     TaxCalculatorService --> TaxSimulationResult : returns
     TaxCalculatorService --> DeductionService : aggregates
-    ContextAssembler --> RepositoryLayer : reads scoped data
-    AuthenticationService --> RepositoryLayer : reads users
-    UserContextService --> RepositoryLayer : reads user and payroll
+    ContextAssembler --> PayrollService : reads payroll
+    ContextAssembler --> DeductionService : reads deductions
+    ContextAssembler --> ReimbursementService : reads reimbursements
+    ContextAssembler --> UserDocumentService : reads documents
+    ContextAssembler --> CatalogService : reads catalog labels
+    AuthenticationService --> UserService : looks up users
+    UserContextService --> UserService : reads user
+    UserContextService --> PayrollService : reads payroll
     UserContextService --> User : loads context
     AuthenticationService --> LocalOAuth2Service : issues tokens
+    DeductionService --> CatalogService : resolves aggregate types
+    TaxCalculatorService --> CatalogService : reads caps
     SecurityMiddleware ..> LocalOAuth2Service : validates JWT
 ```
 
@@ -366,7 +384,7 @@ The implemented dependency direction is:
 routes -> controllers/middleware -> services -> repositories -> Sequelize models
 ```
 
-Controllers and middleware do not import repositories. Current persistence abstractions are `UserRepository`, `UserDocumentRepository`, `PayrollRepository`, `DeductionRepository`, `ReimbursementRepository`, `DeductionTypeCatalogRepository`, and `ReimbursementTypeCatalogRepository`. The database is SQLite in memory by default; model definitions are prepared for a future PostgreSQL migration.
+Controllers and middleware do not import repositories. Each repository has one owning service: `UserService`, `UserDocumentService`, `PayrollService`, `DeductionService`, `ReimbursementService`, or `CatalogService`. Other services call those owners. Current persistence abstractions are `UserRepository`, `UserDocumentRepository`, `PayrollRepository`, `DeductionRepository`, `ReimbursementRepository`, `DeductionTypeCatalogRepository`, and `ReimbursementTypeCatalogRepository`. The database is SQLite in memory by default; model definitions are prepared for a future PostgreSQL migration.
 
 ## 4. Entity Models & Database Schema
 
@@ -563,7 +581,7 @@ Production will use a real IdP (OIDC). For local development, `LocalOAuth2Servic
 ```javascript
 // POST /api/v1/auth/token
 // Body: { "email": "jane@company.com", "password": "demo" }
-// AuthenticationService looks up the user and verifies passwordHash.
+// AuthenticationService delegates user lookup to UserService and verifies passwordHash.
 // A production restriction for this local password flow is still required.
 ```
 

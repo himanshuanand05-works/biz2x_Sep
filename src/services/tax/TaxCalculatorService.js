@@ -1,5 +1,5 @@
 import { deductionService } from '../deductions/DeductionService.js';
-import { deductionTypeCatalogRepository } from '../../repositories/DeductionTypeCatalogRepository.js';
+import { catalogService } from '../policy/CatalogService.js';
 import { TaxSimulationResult } from './TaxSimulationResult.js';
 import { fromMinorUnits, toMinorUnits } from '../../utils/money.js';
 
@@ -9,7 +9,7 @@ export class TaxCalculatorService {
     const proposedAdditionalMinor =
       typeof proposedAdditional === 'number' ? proposedAdditional : toMinorUnits(proposedAdditional);
     const currentDeclared = await deductionService.getAggregateUsedMinor(user.userId, financialYear, '80C');
-    const catalog = await deductionTypeCatalogRepository.findByAggregateGroup('80C');
+    const catalog = await catalogService.findDeductionAggregateGroup('80C');
     const limitMinor = catalog?.maxAggregateMinor ?? 15000000;
     const eligible = Math.min(Math.max(0, proposedAdditionalMinor), Math.max(0, limitMinor - currentDeclared));
     const estimatedSavings = user.taxRegime === 'OLD' ? Math.round(eligible * 0.2) : 0;

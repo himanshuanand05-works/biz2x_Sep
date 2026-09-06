@@ -63,14 +63,65 @@ Routes
 - Identity: `AuthenticationService`, `UserContextService`, `UserService`, `LocalOAuth2Service`.
 - Assistant: `PromptOrchestrator`, `ContextToolPlanner`, `ContextAssembler`, `LlmClient`.
 - Documents: `UserDocumentService`, `MockOcrService`.
-- Policy: `CompanyPolicyService`.
-- Financial: `DeductionService`, `TaxCalculatorService`, `TaxSimulationResult`.
+- Policy: `CompanyPolicyService`, `CatalogService`.
+- Payroll: `PayrollService`.
+- Financial: `DeductionService`, `ReimbursementService`, `TaxCalculatorService`, `TaxSimulationResult`.
 
-`DeductionEligibilityService`, `ReimbursementEligibilityService`, `ReimbursementService`, and `PayrollQueryService` are planned and are not current classes.
+`DeductionEligibilityService`, `ReimbursementEligibilityService`, and `PayrollQueryService` are planned and are not current classes.
 
 ### Persistence
 
-Repositories are the only application layer that accesses Sequelize models. Current repositories cover users, documents, payroll, deductions, reimbursements, and both catalog tables. Models use Sequelize timestamps, snake_case columns, and paranoid soft delete. Prototype relationships are logical ID links; database foreign keys and partial indexes are not configured.
+Repositories are the only application layer that accesses Sequelize models. Each repository is owned by one service; higher-level services call those owners instead of importing repositories. Current repositories cover users, documents, payroll, deductions, reimbursements, and both catalog tables. Models use Sequelize timestamps, snake_case columns, and paranoid soft delete. Prototype relationships are logical ID links; database foreign keys and partial indexes are not configured.
+
+### Service-to-service call map
+
+```text
+AuthenticationService
+  -> UserService
+  -> LocalOAuth2Service
+
+UserContextService
+  -> UserService
+  -> PayrollService
+
+PromptOrchestrator
+  -> ContextToolPlanner
+  -> ContextAssembler
+  -> TaxCalculatorService
+  -> LlmClient
+
+ContextAssembler
+  -> UserService
+  -> PayrollService
+  -> DeductionService
+  -> ReimbursementService
+  -> UserDocumentService
+  -> CatalogService
+  -> CompanyPolicyService
+
+TaxCalculatorService
+  -> DeductionService
+  -> CatalogService
+
+DeductionService
+  -> CatalogService
+
+UserDocumentService
+  -> MockOcrService
+```
+
+Repository ownership:
+
+| Owner service | Repository access |
+|---|---|
+| `UserService` | `UserRepository` |
+| `PayrollService` | `PayrollRepository` |
+| `DeductionService` | `DeductionRepository` |
+| `ReimbursementService` | `ReimbursementRepository` |
+| `UserDocumentService` | `UserDocumentRepository` |
+| `CatalogService` | `DeductionTypeCatalogRepository`, `ReimbursementTypeCatalogRepository` |
+
+This prevents multiple services from implementing competing persistence access rules for the same aggregate.
 
 ## 4. Runtime Flows
 
@@ -80,13 +131,13 @@ Repositories are the only application layer that accesses Sequelize models. Curr
 POST /api/v1/auth/token
   -> validation
   -> AuthenticationService.issueToken(email, password)
-  -> UserRepository lookup
+  -> UserService user lookup
   -> verify passwordHash
   -> LocalOAuth2Service.issueToken(userId, profile)
   -> accessToken + refreshToken
 ```
 
-Refresh validation and user lookup are also owned by `AuthenticationService`. `LocalOAuth2Service` validates issuer, audience, expiry, and refresh-token type.
+Refresh validation is owned by `AuthenticationService`; user lookup is delegated to `UserService`. `LocalOAuth2Service` validates issuer, audience, expiry, and refresh-token type.
 
 ### 4.2 Assistant query
 

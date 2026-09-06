@@ -1,4 +1,5 @@
 import { mockOcrService } from './MockOcrService.js';
+import { userDocumentRepository } from '../../repositories/UserDocumentRepository.js';
 import { logger } from '../../config/logger.js';
 import { ValidationError } from '../../utils/errors.js';
 
@@ -12,6 +13,14 @@ function financialYearFromPayrollCycle(payrollCycle) {
 
 /** Runs request-scoped OCR without persisting uploaded file data. */
 export class UserDocumentService {
+  async findByUser(userId, filters = {}) {
+    return userDocumentRepository.find(userId, filters);
+  }
+
+  async findByUserAndId(userId, documentId) {
+    return userDocumentRepository.findByUserAndId(userId, documentId);
+  }
+
   async uploadDocument(userId, file, metadata = {}) {
     const category = metadata.category ?? 'OTHER';
     const ocr = await mockOcrService.extract(null, category, file);
