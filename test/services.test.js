@@ -10,6 +10,7 @@ import { deductionService } from '../src/services/deductions/DeductionService.js
 import { localOAuth2Service } from '../src/services/identity/LocalOAuth2Service.js';
 import { userDocumentService } from '../src/services/documents/UserDocumentService.js';
 import { reimbursementRepository } from '../src/repositories/ReimbursementRepository.js';
+import { queryAssistant } from '../src/api/controllers/assistantController.js';
 import { initDatabase } from '../src/models/index.js';
 import { seedDatabase } from '../src/db/seed.js';
 
@@ -50,4 +51,45 @@ test('identity service issues and validates access and refresh tokens', () => {
   const refreshed = localOAuth2Service.refresh(tokens.refreshToken, { email: 'jane@company.com', name: 'Jane Doe' });
   assert.ok(refreshed.accessToken);
   assert.ok(refreshed.refreshToken);
+});
+
+test('assistant refusal short-circuits before document upload', async () => {
+  const originalUpload = userDocumentService.uploadDocument;
+  let uploadCalled = false;
+
+  userDocumentService.uploadDocument = async (...args) => {
+    uploadCalled = true;
+    return originalUpload(...args);
+  };
+
+  try {
+    const req = {
+      user: { userId: 'emp_101' },
+      body: {
+        query: "What is my manager's salary?",
+        financialYear: '2026-2027'
+      },
+      context: { latestPayrollCycle: '2026-04' },
+      file: { originalname: 'payslip.pdf' }
+    };
+
+    const res = {
+      status(code) {
+        this.code = code;
+        return this;
+      },
+      json(payload) {
+        this.payload = payload;
+        return this;
+      }
+    };
+
+    await queryAssistant(req, res);
+
+    assert.equal(uploadCalled, false);
+    assert.equal(res.payload.success, true);
+    assert.equal(res.payload.data.refusal, true);
+  } finally {
+    userDocumentService.uploadDocument = originalUpload;
+  }
 });

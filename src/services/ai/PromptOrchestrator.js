@@ -12,10 +12,12 @@ const refusalRules = [
 
 /** Orchestrates scoped context, deterministic calculations, refusal checks, and the LLM call. */
 export class PromptOrchestrator {
-  async answer(userId, userQuery, options = {}) {
-    const refusal = this.getRefusal(userQuery);
-    if (refusal) {
-      return { answer: refusal.reason, intent: 'REFUSAL', sources: [], assumptions: [], refusal: true };
+  async answer(userId, userQuery, options = {}, settings = {}) {
+    if (!settings.skipRefusalCheck) {
+      const refusal = this.getRefusal(userQuery);
+      if (refusal) {
+        return { answer: refusal.reason, intent: 'REFUSAL', sources: [], assumptions: [], refusal: true };
+      }
     }
 
     const plan = contextToolPlanner.plan(userQuery, options);

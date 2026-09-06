@@ -16,6 +16,26 @@ export async function queryAssistant(req, res) {
       query,
       details: { reason: refusal.reason }
     });
+    const result = {
+      answer: refusal.reason,
+      intent: 'REFUSAL',
+      sources: [],
+      assumptions: [],
+      refusal: true
+    };
+    logger.info('User action audited: assistant_query', {
+      userId,
+      action: 'assistant_query',
+      intent: result.intent,
+      query,
+      details: {
+        refusal: result.refusal,
+        sources: result.sources,
+        financialYear: req.body.financialYear,
+        payrollCycle: req.body.payrollCycle ?? req.context.latestPayrollCycle
+      }
+    });
+    return sendSuccess(res, assistantResponse(result));
   }
 
   let uploadedDocument;
@@ -32,7 +52,7 @@ export async function queryAssistant(req, res) {
     payrollCycle: req.body.payrollCycle ?? req.context.latestPayrollCycle,
     proposed80C: req.body.proposed80C,
     uploadedDocument
-  });
+  }, { skipRefusalCheck: true });
 
   logger.info('User action audited: assistant_query', {
     userId,
